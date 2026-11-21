@@ -507,6 +507,8 @@ const STAY=[60e3,3*60e3],AWAY=[2*60e3,10*60e3]; // so lange in der Ecke (nur Aug
 const PEEK_CHANCE=.4,PEEK_GAP=60e3;  // beim Aufklappen: Chance und Mindestabstand
 const BREAK_MS=50*60e3;              // so lange am Stück lernen, dann schlägt sie eine Fang-Pause vor
 const CHASE_PX=90;                   // so nah mit der Maus, dann haut sie ab
+const NAP_MAX=2,NAP_GAP=30*60e3,NAP_MS=60e3; // auf dem Text schlafen: max 2x am Tag, 30 min Abstand, wacht nach 1 min selbst auf
+const EXAM_DATE="";                  // Prüfungstag als "JJJJ-MM-TT", dann trägt sie eine Glücks-Schleife
 const TEASE_CHANCE=.25,TEASE_MAX=[4,5],TEASE_GAP=45*60e3; // Zuklapp-Streich: Chance, 4 bis 5x am Tag, mind. 45 min Abstand
 
 /* ---------- Zeichnen ---------- */
@@ -621,11 +623,19 @@ st.textContent=`
 #kr-bubble.tl:after{clip-path:polygon(3px 0,9px 0,9px 3px,6px 3px,6px 6px,3px 6px)}
 .kr-zzz{position:absolute;left:46px;top:-4px;pointer-events:none;display:none}
 #kr-perch.sleep .kr-zzz{display:block}
-.kr-zzz canvas{position:absolute;left:0;bottom:0;opacity:0;animation:krz 2.4s ease-in-out infinite}
+.kr-zzz canvas{position:absolute;left:0;bottom:0;opacity:1;animation:krz 1.8s ease-in-out infinite}
 .kr-zzz canvas:nth-child(2){left:7px;bottom:6px;animation-delay:.6s}
 .kr-zzz canvas:nth-child(3){left:15px;bottom:13px;animation-delay:1.2s}
-@keyframes krz{0%{opacity:0;transform:translateY(0)}20%,70%{opacity:1}100%{opacity:0;transform:translateY(-4px)}}
+@keyframes krz{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.kr-zzz canvas{filter:drop-shadow(1px 0 #fff) drop-shadow(-1px 0 #fff) drop-shadow(0 1px #fff) drop-shadow(0 -1px #fff)}
+.kr-zzz.big{left:44px;top:-8px}
+.kr-zzz.big canvas:nth-child(2){left:11px;bottom:9px}
+.kr-zzz.big canvas:nth-child(3){left:24px;bottom:20px}
+@keyframes krconf{to{transform:translateY(110vh) rotate(540deg)}}
 @media (prefers-reduced-motion:reduce){.kr-zzz canvas{animation:none;opacity:1}#kr-perch{transition:none}}
+#kr-nap{position:absolute;left:0;top:0;z-index:49;display:none;line-height:0}
+#kr-nap canvas.kr-me{image-rendering:pixelated;display:block;cursor:pointer}
+#kr-nap .kr-zzz{display:block}
 #kr-walk{position:absolute;left:0;top:0;z-index:49;display:none;line-height:0;pointer-events:none}
 #kr-walk canvas{image-rendering:pixelated;display:block;pointer-events:auto;cursor:pointer;transition:opacity .3s}
 #kr-peek{position:absolute;z-index:49;overflow:hidden;width:64px;height:32px;pointer-events:none;display:none;line-height:0}
@@ -646,7 +656,11 @@ const peekBox=document.createElement("div");peekBox.id="kr-peek";peekBox.setAttr
 const kcv=document.createElement("canvas");peekBox.appendChild(kcv);
 const walker=document.createElement("div");walker.id="kr-walk";walker.setAttribute("aria-hidden","true");
 const wcv=document.createElement("canvas");walker.appendChild(wcv);
-document.body.append(perch,actor,bub,peekBox,walker);
+const napper=document.createElement("div");napper.id="kr-nap";napper.setAttribute("aria-hidden","true");
+const ncv=document.createElement("canvas");ncv.className="kr-me";ncv.title="Anklicken zum Aufwecken";
+const nzz=document.createElement("span");nzz.className="kr-zzz big";ZPIX.forEach(z=>nzz.appendChild(pix(z,{"#":"#2f5f9e"},3)));
+napper.append(ncv,nzz);
+document.body.append(perch,actor,bub,peekBox,walker,napper);
 
 /* ---------- Zustand ---------- */
 const fine=matchMedia("(pointer:fine)").matches;
@@ -687,7 +701,7 @@ function placeBubble(){if(!bubAnchor||bub.style.display!=="block")return;
   const tl=cx<left+bw/2;bub.classList.toggle("tl",tl);           // Zipfel zeigt nach links oder rechts unten
   bub.style.left=left+"px";bub.style.top=Math.max(8,top)+"px";
   bub.style.setProperty("--tail",Math.min(Math.max(6,tl?cx-left-1.5:cx-left-10.5),bw-18)+"px")}
-function say(text,ms,anchor){clearTimeout(bubT);bubAnchor=anchor||pcv;bub.textContent=text;bub.style.display="block";placeBubble();setTimeout(placeBubble,480);
+function say(text,ms,anchor){if(inExam())return;clearTimeout(bubT);bubAnchor=anchor||pcv;bub.textContent=text;bub.style.display="block";placeBubble();setTimeout(placeBubble,480);
   bubT=setTimeout(hush,ms||5000)}
 function hush(){clearTimeout(bubT);bub.style.display="none";bubAnchor=null}
 bub.addEventListener("click",()=>{hush();if(foodEl)endMeal()});
@@ -768,8 +782,8 @@ const PEP=["Du schaffst das!","Kurz durchatmen, dann weiter. Am besten mit Kieme
   "Ich glaub an dich. Und ich bin eine Krabbe, ich kenn mich mit Panzern aus.","Dein Gehirn verbraucht grad ca. 20 % deiner Energie. Gut investiert!",
   "Psst … du machst das super.","Ich würde ja helfen, aber ich hab nur Scheren.","Kleiner Tipp: Ich hätte die Prüfung auch nicht ohne Lernen geschafft.",
   "Wusstest du? Krabben haben blaues Blut. Hämocyanin! Siehst du, Lernen macht Spaß."];
-function motivate(){const t=Math.random()<.65&&progressMsg()||PEP[Math.floor(Math.random()*PEP.length)];
-  seq([[0,()=>{setMood(P.cheer);say(t,6000)}],[1400,()=>setMood(P.rest)],[4600,()=>{}]])}
+function motivate(){const f=Math.random()<.4&&factMsg();const t=f||Math.random()<.65&&progressMsg()||PEP[Math.floor(Math.random()*PEP.length)];
+  seq([[0,()=>{setMood(f?{look:[0,-1],mouth:'open'}:P.cheer);say(t,f?9000:6000)}],[1400,()=>setMood(P.rest)],[f?7600:4600,()=>{}]])}
 
 /* ---------- Ausflüge (Krabbe verlässt den Ruheplatz) ---------- */
 let ax=0,ay=0,avx=0,avy=0,af=0,aRaf=0,aStep=null,aEnd=0;
@@ -801,11 +815,15 @@ function follow(){[ax,ay]=homeXY();let back=false;const t0=Date.now();
   },16000)}
 
 // 3) Fang mich: flüchtet am unteren Rand, freut sich beim Fangen
-function catchMe(){let state="free";ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
+function catchMe(fromBreak){let state="free";ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
   const onClick=()=>{if(state!=="free")return;state="caught";avx=avy=0;
+    const before=earned();K.caught=(K.caught||0)+1;const dur=Date.now()-t0;if(!K.best||dur<K.best)K.best=dur;if(fromBreak===true)K.breakCaught=(K.breakCaught||0)+1;saveK();
+    const fresh=earned().filter(id=>!before.includes(id)).map(id=>BADGES.find(b=>b.id===id).t);
     say(pick(["Erwischt! Respekt!","Du hast mich! Stark!","Wow, bist du schnell!","Okay, okay! Ich ergebe mich!","Mist. Wie hast du das gemacht?"]),1800,acv);
-    setTimeout(()=>{if(aStep)say(pick(["Und jetzt zurück zum Lernen, du schaffst das!","So viel Talent. Jetzt bitte auch fürs Lernen nutzen!","Belohnung: noch ein Kapitel. Hehe."]),2600,acv)},1800);
-    setTimeout(()=>{state="leave"},4400)};
+    let t=1800;
+    if(fresh.length){setTimeout(()=>{if(aStep)say(`Neues Abzeichen: ${fresh.join(", ")}! Schau mal im Fortschritt.`,2600,acv)},t);t+=2600}
+    setTimeout(()=>{if(aStep)say(pick(["Und jetzt zurück zum Lernen, du schaffst das!","So viel Talent. Jetzt bitte auch fürs Lernen nutzen!","Belohnung: noch ein Kapitel. Hehe."]),2600,acv)},t);
+    setTimeout(()=>{state="leave"},t+2600)};
   acv.addEventListener("click",onClick);
   setTimeout(()=>{if(aStep&&state==="free")say(pick(["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"]),1800,acv)},500);
   startEvent(()=>{
@@ -859,12 +877,43 @@ function breakGame(){sessStart=Date.now();
   const game=fine&&!reduce;
   seq([[0,()=>{setMood(P.cheer);say(pick(game?["Du lernst schon ewig! Kurze Pause? Fang mich!","Pausenalarm! Wer mich fängt, darf weiterlernen.","Dein Kopf qualmt. Kurze Pause: Fang mich!"]
                                                 :["Du lernst schon ewig! Kurze Pause? Steh mal auf und streck dich.","Pausenalarm! Kurz Wasser trinken, dann weiter."]),3200)}],
-       [3200,()=>{setMood(P.rest);if(game&&!hidden())catchMe()}]])}
+       [3200,()=>{setMood(P.rest);if(game&&!hidden())catchMe(true)}]])}
+
+// 7) schläft mitten auf dem Text; Klick weckt sie, sie erschrickt und saust davon
+let napOn=false;
+function napDay(){if(!K.nap||K.nap.d!==day())K.nap={d:day(),n:0,last:0};return K.nap}
+function canNap(){const t=napDay();return t.n<NAP_MAX&&Date.now()-(t.last||0)>NAP_GAP}
+function napOnText(force){
+  const ps=[...document.querySelectorAll("#main p,#main li")].filter(el=>{const r=el.getBoundingClientRect();return r.width>220&&r.height>=40&&r.top>110&&r.bottom<innerHeight-60});
+  if(!ps.length){if(force)say("Hier ist kein Text im Bild, auf den ich mich legen kann.",2500);return false}
+  const el=pick(ps),r=el.getBoundingClientRect();
+  const x=r.left+scrollX+(.15+Math.random()*.6)*(r.width-W*SC),y=r.top+scrollY+Math.random()*Math.max(0,r.height-H*SC);
+  const t=napDay();t.n++;t.last=Date.now();saveK();
+  napOn=true;evActive=true;hush();cancelSeq();applyVis();
+  napper.style.transform=`translate(${x}px,${y}px)`;napper.style.display="block";nzz.style.display="block";
+  draw(ncv,P.sleep);
+  let done=false,auto=setTimeout(()=>leave(false),NAP_MS);
+  function off(dir,cb){let px=x,last=performance.now();const sp=.9*dir;
+    (function run(now){now=now||performance.now();const dt=Math.min(50,now-last);last=now;px+=sp*dt;
+      draw(ncv,{legs:Math.floor(now/70)%2,eyes:'big',mouth:'o',blush:false,look:[2*dir,0]});
+      napper.style.transform=`translate(${px}px,${y}px)`;
+      const sx=px-scrollX;if(sx<-80||sx>innerWidth+20||hidden()){cb();return}requestAnimationFrame(run)})()}
+  function end(){napper.style.display="none";hush();napOn=false;evActive=false;ncv.onclick=null;applyVis()}
+  function leave(clicked){if(done)return;done=true;clearTimeout(auto);nzz.style.display="none";
+    const dir=(x-scrollX+W*SC/2)<innerWidth/2?-1:1;
+    if(clicked){draw(ncv,P.scared);say(pick(["Huch! Ich hab nicht geschlafen, ich hab nur … gelesen!","Waaah! Bin schon weg!","Huch! Sorry, war so gemütlich hier.","Ich hab gar nichts verdeckt! Tschüss!"]),1800,ncv);
+      setTimeout(()=>off(dir,end),500)}
+    else{draw(ncv,{eyes:'closed',claws:'up',mouth:'open'});say(pick(["*gähn* Oh, lag ich auf deinem Text? Sorry!","Hm? Ach so, du willst das lesen. Ich geh ja schon."]),2200,ncv);
+      setTimeout(()=>{draw(ncv,P.rest);off(dir,end)},2200)}}
+  ncv.onclick=e=>{e.stopPropagation();leave(true)};
+  const watch=setInterval(()=>{if(!napOn){clearInterval(watch);return}if(hidden()&&!done){done=true;clearTimeout(auto);end()}},500);
+  return true}
 
 function randomEvent(){
   const opts=[[motivate,4]];
   if(!reduce)opts.push([zoom,2],[sidePeek,2],[walkOver,3]);
   if(fine&&!reduce)opts.push([follow,2],[catchMe,2]);
+  if(canNap())opts.push([napOnText,2]);
   let r=Math.random()*opts.reduce((a,o)=>a+o[1],0);for(const [f,w] of opts){if((r-=w)<0){f();return}}
 }
 
@@ -880,6 +929,7 @@ setInterval(()=>{
   if(n>perchNext&&!seqOn&&!sleeping&&!foodEl&&!evActive){perchAway=!perchAway;perchNext=n+rnd(perchAway?AWAY:STAY);perch.classList.remove("duck");applyVis()}
   if(canTalk()){const k=mealDue();if(k){meal(k);return}}
   if(canTalk()&&n-sessStart>BREAK_MS){breakGame();return}
+  nightCheck();
   if(n>nextEv){nextEv=n+EV_MIN+Math.random()*(EV_MAX-EV_MIN);if(canTalk()&&Math.random()<.6)randomEvent()}
 },1000);
 
@@ -944,12 +994,127 @@ document.addEventListener("toggle",e=>{const d=e.target;
   if(hidden()||evActive||sleeping||busy()||Date.now()-lastPeek<PEEK_GAP||Math.random()>=PEEK_CHANCE)return;
   setTimeout(()=>{if(d.open&&!peekOn)peek(d)},350)},true);
 
+/* ================= Extras: Lob, Klausur, Fakten, Abzeichen, Tageszeit, Begrüßung, Verkleidung ================= */
+
+/* Fakten-Krabbe: echter Merksatz aus dem Kapitel, in dem man gerade ist */
+function factMsg(){
+  try{
+    if(typeof BYID==="undefined")return null;
+    const m=location.hash.match(/^#b-(\d+)(?:-k(\w+))?/);if(!m||!BYID[m[1]])return null;
+    const b=BYID[m[1]];const ks=m[2]?b.kapitel.filter(k=>String(k.nr)===m[2]):b.kapitel;
+    const all=ks.flatMap(k=>(k.merksaetze||[]).map(x=>String(x.t||"").replace(/\*\*/g,"").trim())).filter(t=>t.length>20&&t.length<=170);
+    return all.length?"Merksatz: "+pick(all):null;
+  }catch(e){return null}
+}
+
+/* Reaktion nach dem letzten Prüfen in einem Kapitel ("X von Y ganz richtig.") */
+function canReact(){return !hidden()&&!evActive&&!sleeping&&!napOn&&!busy()}
+function quizDone(right,n){
+  if(!canReact()||!n)return;
+  const q=right/n;
+  if(q===1)seq([[300,()=>{setMood(P.cheer);say(pick([`Alles richtig! ${right} von ${n}! Ich bin stolz auf dich.`,"Volle Punktzahl! Ich mach einen Freudentanz. Seitwärts.","Perfekt! Das Kapitel hast du im Panzer."]),4500)}],[1500,()=>setMood({eyes:'happy',mouth:'open'})],[3200,()=>setMood(P.rest)]]);
+  else if(q>=.6)seq([[300,()=>{setMood({mouth:'open'});say(pick([`${right} von ${n}, gut! Die paar Fehler schauen wir uns noch an.`,"Solide! Fast alles sitzt schon."]),4500)}],[4500,()=>setMood(P.rest)]]);
+  else seq([[300,()=>{setMood({look:[0,1],mouth:'flat'});say(pick(["Fehler sind zum Lernen da. Lies den roten Faden nochmal, dann klappt’s!","Nicht schlimm! Auch Krabben häuten sich mehrmals, bis es passt.","Kopf hoch. Beim zweiten Mal sitzt es viel besser."]),5500)}],[1800,()=>setMood(P.rest)],[3700,()=>{}]]);
+}
+
+/* Probeklausur-Ergebnis: nur direkt nach dem Abgeben, nie währenddessen */
+function confetti(){if(reduce)return;
+  const box=document.createElement("div");box.style.cssText="position:fixed;inset:0;pointer-events:none;z-index:52;overflow:hidden";
+  const C=["#e4572e","#f2c14e","#6ab04c","#4a7bd0","#ff9aa2","#5cc4b4"];
+  for(let i=0;i<70;i++){const d=document.createElement("i");const sz=4+Math.floor(Math.random()*3)*2;
+    d.style.cssText=`position:absolute;left:${Math.random()*100}%;top:-12px;width:${sz}px;height:${sz}px;background:${pick(C)};animation:krconf ${1.6+Math.random()*1.4}s ${Math.random()*.6}s linear forwards`;box.appendChild(d)}
+  document.body.appendChild(box);setTimeout(()=>box.remove(),3800)}
+function examResult(){
+  const m=location.hash.match(/^#k-res(\d+)$/);if(!m||typeof S==="undefined")return;
+  const e=S.exams[+m[1]];if(!e||Date.now()-new Date(e.date).getTime()>120e3)return;
+  if((K.examSeen||[]).includes(e.date))return;K.examSeen=[...(K.examSeen||[]).slice(-20),e.date];saveK();
+  if(hidden())return;
+  const q=e.right/40;
+  setTimeout(()=>{
+    if(q>=.75){confetti();seq([[0,()=>{setMood(P.cheer);say(pick([`${e.right} von 40 ganz richtig! Konfetti für dich!`,"Wahnsinn! Das war eine starke Klausur.","So sieht Vorbereitung aus! Ich bin sprachlos. Fast."]),5500)}],[2000,()=>setMood({eyes:'happy',mouth:'open'})],[3500,()=>setMood(P.rest)]])}
+    else if(q>=.5)seq([[0,()=>{setMood({mouth:'open'});say(pick([`${e.right} von 40. Gute Basis! Unten siehst du, wo es noch hakt.`,"Ordentlich! Schau dir die Blöcke mit den meisten Fehlern an."]),5500)}],[5500,()=>setMood(P.rest)]]);
+    else seq([[0,()=>{setMood({look:[0,1],mouth:'flat'});say(pick(["Nicht aufgeben! Jetzt weißt du genau, was du üben musst.","Kopf hoch. Jede Probeklausur macht die echte leichter.","Das war erst die Probe. Die Fehlerliste unten ist Gold wert."]),6000)}],[2000,()=>setMood(P.rest)],[4000,()=>{}]]);
+  },900)}
+addEventListener("hashchange",()=>setTimeout(examResult,50));
+
+/* Beobachter: Quiz-Ende und Fortschritt-Tab */
+const mainObs=document.getElementById("main");
+if(mainObs)new MutationObserver(()=>{
+  mainObs.querySelectorAll("#qwrap .card b").forEach(b=>{if(b.dataset.kr)return;b.dataset.kr=1;const m=b.textContent.match(/^(\d+) von (\d+) ganz richtig/);if(m)quizDone(+m[1],+m[2])});
+  if(location.hash==="#fortschritt")badgePanel();
+}).observe(mainObs,{childList:true,subtree:true});
+
+/* Abzeichen */
+const BADGES=[
+  {id:"c1",t:"Erster Fang",d:"Krabbe 1× gefangen",r:"#4a7bd0",y:"#c98a4a",ok:()=>(K.caught||0)>=1},
+  {id:"c5",t:"Krabbenjäger",d:"5× gefangen",r:"#6ab04c",y:"#c0c7cc",ok:()=>(K.caught||0)>=5},
+  {id:"c10",t:"Profi-Fänger",d:"10× gefangen",r:"#e4572e",y:"#f2c14e",ok:()=>(K.caught||0)>=10},
+  {id:"c25",t:"Legende",d:"25× gefangen",r:"#7a3e9d",y:"#f2c14e",ok:()=>(K.caught||0)>=25},
+  {id:"fast",t:"Blitzschnell",d:"In unter 3 Sekunden gefangen",r:"#f2c14e",y:"#ffffff",ok:()=>K.best&&K.best<3000},
+  {id:"break",t:"Pausen-Champion",d:"In einer Lernpause gefangen",r:"#5cc4b4",y:"#f2c14e",ok:()=>(K.breakCaught||0)>=1}];
+const earned=()=>BADGES.filter(b=>b.ok()).map(b=>b.id);
+function medal(b,on){return pix(["rr......rr",".rr....rr.","..rr..rr..","...rrrr...","...OOOO...","..OYYYYO..",".OYHYYYYO.",".OYHYYYYO.",".OYYYYYYO.","..OYYYYO..","...OOOO..."],
+  on?{r:b.r,O:"#3b1609",Y:b.y,H:"#ffffff"}:{r:"#c4cbcf",O:"#9aa4a9",Y:"#dfe4e6",H:"#eef1f2"},4)}
+function badgePanel(){
+  const m=document.getElementById("main");if(!m||m.querySelector("#kr-badges")||home())return;
+  const anchor=[...m.querySelectorAll("h2")].find(h=>/anderes Gerät/.test(h.textContent));if(!anchor)return;
+  const sec=document.createElement("section");sec.id="kr-badges";
+  const n=K.caught||0,best=K.best?(K.best/1000).toFixed(1).replace(".",",")+" s":"–";
+  sec.innerHTML=`<h2>Krabben-Abzeichen<\/h2><p class="small mute">${n?`${n}× gefangen · schnellster Fang: ${best}`:"Noch nie gefangen. Wenn sie flüchtet: hinterher!"}<\/p><div style="display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 6px"><\/div>`;
+  const g=sec.querySelector("div");
+  BADGES.forEach(b=>{const on=b.ok();const c=document.createElement("div");c.style.cssText="width:96px;text-align:center;font-size:13px;line-height:1.3"+(on?"":";opacity:.75");
+    const md_=medal(b,on);md_.style.cssText="image-rendering:pixelated;display:block;margin:0 auto 6px";c.appendChild(md_);
+    c.insertAdjacentHTML("beforeend",`<b>${on?b.t:"???"}<\/b><br><span class="mute">${b.d}<\/span>`);g.appendChild(c)});
+  anchor.before(sec)}
+if(location.hash==="#fortschritt")setTimeout(badgePanel,0);
+
+/* Tageszeit: Tasse am Morgen, Nachteulen-Hinweis spät nachts */
+const MUG=[{v:"#b9c3c9",O:"#3b1609",c:"#6b3e1f",w:"#fffaf0"},[".v..v..","..v..v.","OOOOO..","OcccOOO","OwwwO.O","OwwwOOO","OwwwO..",".OOO..."]];
+function nightCheck(){const h=new Date().getHours();if(!(h>=23||h<4))return;
+  const key=new Date(Date.now()-5*3600e3).toDateString();if(K.night===key||!canTalk())return;K.night=key;saveK();
+  seq([[0,()=>{setMood({eyes:'closed',mouth:'open'});say(pick([`Es ist ${h} Uhr! Schlaf ist auch Lernen.`,`${h} Uhr?! Selbst ich bin schon müde. Und ich hab keine Augenlider.`,"Nachteule! Morgen ausgeschlafen lernst du doppelt so gut."]),5500)}],[1800,()=>setMood(P.rest)],[3700,()=>{}]])}
+
+/* Begrüßung: einmal am Tag beim ersten Öffnen */
+function nextChapter(){try{if(typeof BLOCKS==="undefined"||typeof S==="undefined")return null;
+  for(const b of BLOCKS)for(const k of b.kapitel)if(!S.done[b.id+"-"+k.nr])return k.titel;return""}catch(e){return null}}
+function greet(force){
+  if(!force&&K.greet===day())return;if(hidden())return;
+  if(!force&&(evActive||napOn||seqOn||sleeping||busy())){setTimeout(()=>greet(),5000);return}
+  K.greet=day();saveK();
+  const h=new Date().getHours(),nk=nextChapter();
+  const hi=h<5?"Na, Nachteule?":h<11?"Guten Morgen!":h<17?"Hallo!":h<22?"Guten Abend!":"Noch wach?";
+  const plan=nk===""?"Alles verstanden! Heute vielleicht eine Probeklausur?":nk?`Heute schaffen wir „${nk}“.`:"Schön, dass du da bist!";
+  const morning=h>=5&&h<11;
+  if(morning){if(foodEl)foodEl.remove();foodEl=pix(MUG[1],MUG[0],SC);foodEl.className="kr-food";perch.appendChild(foodEl)}
+  const wave=[{claws:'up',eyes:'happy',mouth:'open'},{eyes:'happy',mouth:'open'}];
+  seq([[0,()=>{setMood(wave[0]);say(`${hi} ${plan}`,5000)}],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],
+       [1600,()=>setMood(P.rest)],[2100,()=>{if(foodEl){foodEl.remove();foodEl=null}applyVis()}]]);
+}
+setTimeout(()=>{if(!inExam())greet()},2500);
+
+/* Verkleidung: Weihnachtsmütze im Advent, Partyhut zu Silvester, Glücks-Schleife am Prüfungstag */
+const HATS={
+  santa:{pal:{R:"#d6293a",W:"#ffffff",O:"#3b1609"},rows:[".......OWW","......ORWW",".....ORRO.","....ORRRO.","...ORRRRO.","..ORRRRRO.",".OWWWWWWWO",".OOOOOOOOO"],x:30,y:-9},
+  party:{pal:{Y:"#f2c14e",P:"#e4572e",B:"#4a7bd0",O:"#3b1609"},rows:["...Y...","..OYO..","..OPO..",".OBPBO.",".OPBPO.","OBPBPBO","OOOOOOO"],x:33,y:-10},
+  bow:{pal:{Y:"#f2c14e",O:"#3b1609",H:"#ffe9a3"},rows:["OO.....OO","OHOO.OOYO","OYYYOYYYO","OYOO.OOYO","OO.....OO"],x:23,y:11}};
+let costumeOverride=null;
+function costume(){if(costumeOverride)return costumeOverride==="none"?null:costumeOverride;
+  const d=new Date(),mo=d.getMonth()+1,dd=d.getDate(),iso=d.getFullYear()+"-"+String(mo).padStart(2,"0")+"-"+String(dd).padStart(2,"0");
+  if(EXAM_DATE&&iso===EXAM_DATE)return"bow";
+  if((mo===12&&dd===31)||(mo===1&&dd===1))return"party";
+  if(mo===12&&dd<=26)return"santa";
+  return null}
+let hatEl=null;
+function wearHat(){const c=costume();if(hatEl){hatEl.remove();hatEl=null}if(!c)return;
+  const h=HATS[c];hatEl=pix(h.rows,h.pal,SC);hatEl.style.cssText=`position:absolute;left:${h.x}px;top:${h.y}px;image-rendering:pixelated;pointer-events:none`;perch.appendChild(hatEl)}
+wearHat();
+
 // für Test-Leiste und Konsole: sichtbaren Kasten suchen, ggf. aufklappen, dann Aktion
 function withDetails(fn){const d=[...document.querySelectorAll("#main details")].find(x=>{const r=(x.querySelector(":scope>summary")||x).getBoundingClientRect();return r.width>=160&&r.top>60&&r.top<innerHeight-60});
   if(!d){say("Hier ist kein Kasten zum Aufklappen im Bild. Scroll mal zu einem!",2500);return}
   if(d.open){fn(d);return}lastPeek=lastTease=Date.now();d.open=true;setTimeout(()=>fn(d),400)}
 // zum Ausprobieren in der Konsole: krabbe.zoom(), krabbe.catchMe() …
-window.krabbe={pause:breakGame,tease:()=>withDetails(tease),sidePeek,walkOver,peek:()=>withDetails(peek),away:()=>{perchNext=0},zoom,follow,catchMe,motivate,sleep,wake:act,meal:k=>meal(k||"lunch"),back:()=>setHouse(false),house:()=>setHouse(true)};
+window.krabbe={nap:()=>napOnText(true),pause:breakGame,tease:()=>withDetails(tease),sidePeek,walkOver,peek:()=>withDetails(peek),away:()=>{perchNext=0},zoom,follow,catchMe,motivate,sleep,wake:act,meal:k=>meal(k||"lunch"),back:()=>setHouse(false),house:()=>setHouse(true)};
 draw(pcv,P.rest);applyVis();
 
 /* ---------- Test-Leiste: nur mit ?krabbe-test in der Adresse ---------- */
@@ -958,7 +1123,10 @@ if(/krabbe-test/.test(location.search)){
   T.style.cssText="position:fixed;left:8px;bottom:8px;z-index:70;display:flex;flex-wrap:wrap;gap:4px;max-width:min(560px,calc(100vw - 100px));background:rgba(20,32,29,.9);padding:6px;border-radius:8px;font:12px system-ui";
   const B=[["Ecke an/aus",()=>{perchNext=0}],["Spruch",motivate],["Vorbeisausen",zoom],["Seitlich",sidePeek],["Über Kasten",walkOver],
     ["Hinterher",follow],["Fang mich",catchMe],["Pause nach 50 min",breakGame],["Lugen",window.krabbe.peek],["Zuklapp-Streich",window.krabbe.tease],
-    ["Mittag",()=>meal("lunch")],["Abend",()=>meal("dinner")],["Einschlafen",sleep],["Tageslimits zurücksetzen",()=>{const n=K.tease&&K.tease.d===day()?K.tease.n:0,mx=K.tease&&K.tease.d===day()?K.tease.max:TEASE_MAX[1];delete K.tease;delete K.meal;delete K.gone;saveK();lastTease=0;lastPeek=0;perchAway=false;perchNext=Date.now()+60e3;applyVis();
+    ["Mittag",()=>meal("lunch")],["Abend",()=>meal("dinner")],["Einschlafen",sleep],["Auf Text schlafen",()=>napOnText(true)],["Merksatz",()=>{const f=factMsg();f?seq([[0,()=>say(f,9000)],[9000,()=>{}]]):say("Merksätze gibt’s nur in einem Lernblock. Geh zu „Lernen“.",3000)}],
+    ["Quiz alles richtig",()=>quizDone(8,8)],["Quiz viele Fehler",()=>quizDone(2,8)],["Klausur gut",()=>{confetti();seq([[0,()=>{setMood(P.cheer);say("34 von 40 ganz richtig! Konfetti für dich!",4000)}],[4000,()=>setMood(P.rest)]])}],
+    ["Begrüßung",()=>greet(true)],["Nacht",()=>{seq([[0,()=>{setMood({eyes:'closed',mouth:'open'});say("Es ist 1 Uhr! Schlaf ist auch Lernen.",4000)}],[4000,()=>setMood(P.rest)]])}],
+    ["Kostüm wechseln",()=>{const o=[null,"santa","party","bow","none"];costumeOverride=o[(o.indexOf(costumeOverride)+1)%o.length];wearHat();perchAway=false;perchNext=Date.now()+60e3;applyVis();say("Kostüm: "+({santa:"Weihnachtsmütze",party:"Partyhut",bow:"Glücks-Schleife",none:"keins"}[costumeOverride]||"automatisch nach Datum"),2000)}],["Tageslimits zurücksetzen",()=>{const n=K.tease&&K.tease.d===day()?K.tease.n:0,mx=K.tease&&K.tease.d===day()?K.tease.max:TEASE_MAX[1];delete K.tease;delete K.nap;delete K.meal;delete K.gone;saveK();lastTease=0;lastPeek=0;perchAway=false;perchNext=Date.now()+60e3;applyVis();
       setTimeout(()=>say(`Zurückgesetzt! Streiche heute wieder frei (vorher ${n} von ${mx}), Essens-Erinnerung und Ausblenden auch.`,4000),500)}]];
   B.forEach(([t,f])=>{const b=document.createElement("button");b.textContent=t;b.style.cssText="font:inherit;padding:4px 7px;border:0;border-radius:5px;background:#dbefeb;color:#14201d;cursor:pointer";
     b.onclick=e=>{e.stopPropagation();setTimeout(()=>{lastInput=0;f()},50)};T.appendChild(b)});
