@@ -503,7 +503,7 @@ const QUIET_MS=8e3;                  // nach Klick/Taste so lange keine Aktion
 const EV_MIN=2*60e3,EV_MAX=5*60e3;   // Abstand zwischen zufälligen Aktionen
 const MEALS={lunch:[11*60+45,14*60],dinner:[18*60,20*60]}; // Minuten seit Mitternacht
 const SC=2;                          // Pixelgröße, 2 = 64 px breit
-const STAY=[20e3,60e3],AWAY=[5*60e3,12*60e3]; // kurz in der Ecke (nur Augen), meist versteckt
+const STAY=[60e3,3*60e3],AWAY=[2*60e3,5*60e3]; // so lange in der Ecke (nur Augen) / versteckt
 const PEEK_CHANCE=.4,PEEK_GAP=60e3;  // beim Aufklappen: Chance und Mindestabstand
 const BREAK_MS=50*60e3;              // so lange am Stück lernen, dann schlägt sie eine Fang-Pause vor
 const CHASE_PX=90;                   // so nah mit der Maus, dann haut sie ab
@@ -654,7 +654,7 @@ const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
 let mouse=null,lastAct=Date.now(),lastInput=0,sleeping=false,evActive=false,seqT=[],seqOn=false,mood=P.rest,foodEl=null;
 const rnd=([a,b])=>a+Math.random()*(b-a);
 const pick=a=>a[Math.floor(Math.random()*a.length)];
-let perchAway=true,perchNext=Date.now()+rnd(AWAY)*.5,peekOn=false,lastPeek=0,peekMood={};
+let perchAway=true,perchNext=Date.now()+rnd([20e3,60e3]),peekOn=false,lastPeek=0,peekMood={};
 let sessStart=Date.now();
 let nextEv=Date.now()+EV_MIN*0.7+Math.random()*EV_MIN;
 const inExam=()=>/^#k-run/.test(location.hash);
