@@ -196,7 +196,7 @@ function viewStart(m){
   m.innerHTML=`
   <h1>Tierphysiologie Trainer</h1>
   <p class="lede">Alle Vorlesungen und Skripten des Wintersemesters 2026 als Stichworte, Merksätze und Fallen, mit Seitenangabe zum Nachlesen. Dazu ${ALT.length} Altfragen der Klausur 2025 und ${nKI} neue Fragen im selben Stil.</p>
-  <div class="row"><button class="btn" id="tourBtn">Kurze Tour starten</button><a class="btn ghost" href="#lernen">Direkt lernen</a></div>
+  <div class="row"><button class="btn" id="tourBtn">Kurze Tour starten</button><a class="btn ghost" href="#lernen">Direkt lernen</a><span id="krabbe-slot"></span></div>
   <div class="big" id="st-big"><div><b>${done}/${tot}</b><span>Kapitel verstanden</span></div><div><b>${S.exams.length}</b><span>Probeklausuren geschrieben</span></div></div>
   <h2>So ist die Seite aufgebaut</h2>
   <div class="tbl"><table>
@@ -487,6 +487,485 @@ function startTour(){
 }
 
 route();
+</script>
+<script>
+/* Pixel-Krabbe: ruhiger Lern-Begleiter als Easter Egg.
+   Wird von build.py an der Stelle <!--KRABBE--> in die Seite gesetzt.
+   Regeln: nie in der laufenden Probeklausur (#k-run), nie beim Tippen oder in der Tour,
+   Sprechblasen nur, wenn gerade nicht geklickt oder getippt wird. */
+(()=>{
+"use strict";
+if(window.__krabbe)return;window.__krabbe=1;
+
+/* ---------- Einstellungen ---------- */
+const IDLE_MS=10*60e3;               // so lange nichts tun, dann schläft er ein
+const QUIET_MS=8e3;                  // nach Klick/Taste so lange keine Aktion
+const EV_MIN=2*60e3,EV_MAX=5*60e3;   // Abstand zwischen zufälligen Aktionen
+const MEALS={lunch:[11*60+45,14*60],dinner:[18*60,20*60]}; // Minuten seit Mitternacht
+const SC=2;                          // Pixelgröße, 2 = 64 px breit
+const STAY=[20e3,60e3],AWAY=[5*60e3,12*60e3]; // kurz in der Ecke (nur Augen), meist versteckt
+const PEEK_CHANCE=.4,PEEK_GAP=60e3;  // beim Aufklappen: Chance und Mindestabstand
+const BREAK_MS=50*60e3;              // so lange am Stück lernen, dann schlägt sie eine Fang-Pause vor
+const CHASE_PX=90;                   // so nah mit der Maus, dann haut sie ab
+const TEASE_CHANCE=.25,TEASE_MAX=[4,5],TEASE_GAP=45*60e3; // Zuklapp-Streich: Chance, 4 bis 5x am Tag, mind. 45 min Abstand
+
+/* ---------- Zeichnen ---------- */
+const W=32,H=26;
+const PAL={O:'#3b1609',R:'#e4572e',H:'#ff8c55',S:'#b03a1a',W:'#fffaf0',K:'#1a0d08',P:'#ff9aa2',T:'#6cc3f5'};
+const make=()=>Array.from({length:H},()=>Array(W).fill(null));
+const set=(g,x,y,c)=>{x=Math.round(x);y=Math.round(y);if(x>=0&&x<W&&y>=0&&y<H)g[y][x]=c};
+function ell(g,cx,cy,rx,ry,c){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(((x+.5-cx)/rx)**2+((y+.5-cy)/ry)**2<=1)g[y][x]=c}
+function rect(g,x,y,w,h,c){for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)set(g,i,j,c)}
+function line(g,x0,y0,x1,y1,c){const n=Math.max(Math.abs(x1-x0),Math.abs(y1-y0))||1;for(let i=0;i<=n;i++)set(g,x0+(x1-x0)*i/n,y0+(y1-y0)*i/n,c)}
+function side(g,m,o){
+  const X=x=>m?W-1-x:x;
+  const ph=o.legs==null?0:((o.legs+(m?1:0))%2),d=o.legs==null?0:(ph?1:-1);
+  line(g,X(9),17,X(3),19+d,'R');line(g,X(3),19+d,X(2),21+d,'R');
+  line(g,X(9),19,X(4),22-d,'R');line(g,X(4),22-d,X(3),24-d,'R');
+  line(g,X(11),21,X(7),24+d,'R');
+  if(o.claws==='up'){line(g,X(8),13,X(4),8,'R');ell(g,X(3)+(m?1:0),5.5,3,2.6,'R');for(const [a,b] of [[1,3],[2,3],[1,4],[2,4],[2,5]])set(g,X(a)+(m?1:0),b,null)}
+  else{line(g,X(8),15,X(5),13,'R');ell(g,X(3.5)+(m?1:0),11,3,2.6,'R');for(const [a,b] of [[2,8],[3,8],[2,9],[3,9],[3,10]])set(g,X(a)+(m?1:0),b,null)}
+}
+function crab(o){
+  o=Object.assign({look:[0,0],eyes:'open',claws:'down',mouth:'smile',legs:null,blush:true},o);
+  const g=make();side(g,false,o);side(g,true,o);
+  const t=o.tilt||0;
+  for(const sx of [11,12,19,20])line(g,sx,11,sx+t,7,'R');
+  ell(g,16,16,9.5,6,'R');
+  const lid=o.eyes!=='open'&&o.eyes!=='big';
+  ell(g,12+t,5,3,3,lid?'R':'W');ell(g,20+t,5,3,3,lid?'R':'W');
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(g[y][x]!=='R')continue;
+    if(y>=10&&y<=11&&x>=11&&x<=21)g[y][x]='H';if(y>=20&&y<=21&&x>=9&&x<=23)g[y][x]='S'}
+  const out=make();
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(g[y][x])continue;if([[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>g[y+b]?.[x+a]))out[y][x]='O'}
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(out[y][x])g[y][x]='O';
+  const [dx,dy]=o.look;
+  for(const ex of [11+t,19+t]){
+    if(o.eyes==='open'){rect(g,ex+dx,4+dy,2,2,'K');set(g,ex+dx,4+dy,'W')}
+    else if(o.eyes==='big')rect(g,ex+Math.sign(dx),4+dy,2,2,'K');
+    else if(o.eyes==='closed')line(g,ex-1,5,ex+2,5,'O');
+    else if(o.eyes==='happy'){set(g,ex-1,6,'O');set(g,ex,5,'O');set(g,ex+1,5,'O');set(g,ex+2,6,'O')}
+  }
+  if(o.mouth==='smile'){set(g,14,16,'O');set(g,15,17,'O');set(g,16,17,'O');set(g,17,16,'O')}
+  if(o.mouth==='open'){set(g,14,16,'O');rect(g,15,16,2,2,'K');set(g,17,16,'O');set(g,15,18,'O');set(g,16,18,'O')}
+  if(o.mouth==='o')rect(g,15,16,2,2,'K');
+  if(o.mouth==='flat')line(g,15,17,16,17,'O');
+  if(o.mouth==='sad'){set(g,14,17,'O');set(g,15,16,'O');set(g,16,16,'O');set(g,17,17,'O')}
+  if(o.tear){set(g,21+t,9,'T');set(g,21+t,10,'T');set(g,22+t,11,'T')}
+  if(o.blush){rect(g,10,15,2,1,'P');rect(g,20,15,2,1,'P')}
+  return g;
+}
+function paint(cv,g,s,pal){const h=g.length,w=g[0].length;if(cv.width!==w*s){cv.width=w*s;cv.height=h*s}const c=cv.getContext('2d');c.clearRect(0,0,cv.width,cv.height);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=g[y][x];if(k){c.fillStyle=pal[k];c.fillRect(x*s,y*s,s,s)}}}
+function draw(cv,o,s){paint(cv,crab(o),s||SC,PAL)}
+function pix(rows,pal,s){const c=document.createElement('canvas'),w=Math.max(...rows.map(r=>r.length));c.width=w*s;c.height=rows.length*s;const x=c.getContext('2d');
+  rows.forEach((r,j)=>[...r].forEach((ch,i)=>{if(pal[ch]){x.fillStyle=pal[ch];x.fillRect(i*s,j*s,s,s)}}));return c}
+const FOOD={
+  lunch:[{v:'#b9c3c9',O:'#3b1609',n:'#f2c14e',y:'#e07a3a',g:'#6ab04c',w:'#4a7bd0',l:'#7fa6e6'},
+    ["..v...v...","...v...v..","..v...v...",".OOOOOOOO.","OnnynngnnO","OlwwwwwwwO",".OwwwwwwO.","..OOOOOO.."]],
+  dinner:[{s:'#6b3e1f',l:'#6ab04c',O:'#3b1609',r:'#d93a3a',H:'#ff8f8f'},
+    ["....s.ll","....sll.","..OOsOO.",".OrrrrrrO","OrHrrrrrO","OrHrrrrrO","OrrrrrrrO",".OrrrrrO.","..OO.OO.."]]};
+const ZPIX=[["####","..#.",".#..","####"],["#####","...#.","..#..",".#...","#####"],["######","....#.","...#..","..#...",".#....","######"]];
+
+/* Krabbenhaus fürs Knopf-Symbol: Häuschen, aus der Tür schauen zwei Krabbenaugen */
+function houseGrid(){
+  const w=30,h=26,g=Array.from({length:h},()=>Array(w).fill(null)),s=(x,y,c)=>{if(x>=0&&x<w&&y>=0&&y<h)g[y][x]=c};
+  for(let y=2;y<8;y++)for(let x=19;x<22;x++)s(x,y,'r');                                                          // Kamin
+  for(let y=2;y<13;y++){const half=Math.round((y-1)*1.25);for(let x=15-half;x<=14+half;x++)s(x,y,y<5?'h':'r')}   // Dach
+  for(let y=13;y<25;y++)for(let x=4;x<26;x++)s(x,y,'w');                                                         // Wand
+  const out=g.map(r=>r.slice());
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(!g[y][x]&&[[1,0],[-1,0],[0,1],[0,-1]].some(([a,b])=>g[y+b]?.[x+a]))out[y][x]='O';
+  for(let x=4;x<26;x++)out[13][x]='O';                                                                           // Dachkante
+  for(let y=15;y<25;y++)for(let x=9;x<21;x++)out[y][x]=(x===9||x===20||y===15)?'O':'d';                         // Tür mit Rahmen
+  for(const ex of [11,16])for(let y=18;y<21;y++)for(let x=ex;x<ex+3;x++)out[y][x]=(y>=19&&x===ex+1)?'K':'W';     // Augen
+  for(let y=16;y<20;y++)for(let x=22;x<25;x++)out[y][x]=(y===16||y===19||x===22||x===24)?'O':'b';                // Fenster
+  out[20][7]=out[20][6]='O';for(let y=16;y<20;y++)for(let x=5;x<8;x++)out[y][x]=(y===16||y===19||x===5||x===7)?'O':'b'; // zweites Fenster
+  out[20][6]=out[20][7]='w';
+  return out}
+const HPAL={O:'#3b1609',r:'#b03a1a',h:'#e4572e',w:'#f3e6cf',d:'#2a120a',b:'#9fd3f2',W:'#fffaf0',K:'#1a0d08',o:'#e4572e'};
+
+/* ---------- Posen ---------- */
+const P={
+  rest:{},blink:{eyes:'closed'},
+  cheer:{eyes:'happy',claws:'up',mouth:'open'},
+  scared:{eyes:'big',claws:'up',mouth:'o',blush:false},
+  sleep:{eyes:'closed',mouth:'flat'},
+  sad:{look:[0,1],mouth:'sad',tear:true},
+  lunch:{eyes:'happy',claws:'up',mouth:'open'},
+  dinner:{mouth:'open'},
+};
+
+/* ---------- Speicher ---------- */
+const LS="krabbe-v1";let K={};
+try{K=JSON.parse(localStorage.getItem(LS)||"{}")||{}}catch(e){K={}}
+const saveK=()=>{try{localStorage.setItem(LS,JSON.stringify(K))}catch(e){}};
+const day=()=>{const d=new Date();return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate()};
+
+/* ---------- Elemente ---------- */
+const st=document.createElement("style");
+st.textContent=`
+#kr-perch{position:fixed;right:18px;bottom:calc(-36px + env(safe-area-inset-bottom,0px));z-index:50;line-height:0;transition:transform .45s ease,opacity .3s}
+#kr-perch.talk{transform:translateY(-16px)}
+#kr-perch.duck{transform:translateY(46px)}
+#kr-perch.off{transform:translateY(90px);opacity:0;pointer-events:none}
+#kr-perch canvas,#kr-actor canvas{image-rendering:pixelated;display:block}
+#kr-perch>canvas.kr-me,#kr-actor canvas{cursor:pointer}
+#kr-perch .kr-food{position:absolute;right:100%;bottom:38px;margin-right:2px}
+#kr-actor{position:fixed;left:0;top:0;z-index:50;display:none;line-height:0;will-change:transform}
+#kr-bubble{position:fixed;z-index:51;display:none;max-width:min(260px,calc(100vw - 40px));font:400 15px/1.35 "Pixelify Sans",var(--sans,system-ui),sans-serif;background:#fffaf0;color:#2a120a;padding:8px 12px;cursor:pointer;
+  box-shadow:0 -3px #2a120a,0 3px #2a120a,-3px 0 #2a120a,3px 0 #2a120a,3px 6px rgba(0,0,0,.14),6px 3px rgba(0,0,0,.14)}
+#kr-bubble:before,#kr-bubble:after{content:"";position:absolute;top:100%;left:var(--tail,24px);width:12px;height:12px}
+#kr-bubble:before{background:#2a120a;clip-path:polygon(0 0,12px 0,12px 12px,9px 12px,9px 9px,6px 9px,6px 6px,3px 6px,3px 3px,0 3px)}
+#kr-bubble:after{background:#fffaf0;clip-path:polygon(3px 0,9px 0,9px 6px,6px 6px,6px 3px,3px 3px)}
+#kr-bubble.tl:before{clip-path:polygon(0 0,12px 0,12px 3px,9px 3px,9px 6px,6px 6px,6px 9px,3px 9px,3px 12px,0 12px)}
+#kr-bubble.tl:after{clip-path:polygon(3px 0,9px 0,9px 3px,6px 3px,6px 6px,3px 6px)}
+.kr-zzz{position:absolute;left:46px;top:-4px;pointer-events:none;display:none}
+#kr-perch.sleep .kr-zzz{display:block}
+.kr-zzz canvas{position:absolute;left:0;bottom:0;opacity:0;animation:krz 2.4s ease-in-out infinite}
+.kr-zzz canvas:nth-child(2){left:7px;bottom:6px;animation-delay:.6s}
+.kr-zzz canvas:nth-child(3){left:15px;bottom:13px;animation-delay:1.2s}
+@keyframes krz{0%{opacity:0;transform:translateY(0)}20%,70%{opacity:1}100%{opacity:0;transform:translateY(-4px)}}
+@media (prefers-reduced-motion:reduce){.kr-zzz canvas{animation:none;opacity:1}#kr-perch{transition:none}}
+#kr-walk{position:absolute;left:0;top:0;z-index:49;display:none;line-height:0;pointer-events:none}
+#kr-walk canvas{image-rendering:pixelated;display:block;pointer-events:auto;cursor:pointer;transition:opacity .3s}
+#kr-peek{position:absolute;z-index:49;overflow:hidden;width:64px;height:32px;pointer-events:none;display:none;line-height:0}
+#kr-peek canvas{image-rendering:pixelated;display:block;transform:translateY(100%);transition:transform .35s ease;pointer-events:auto;cursor:pointer}
+#kr-peek.up canvas{transform:translateY(0)}
+@media print{#kr-perch,#kr-actor,#kr-bubble,#kr-peek{display:none!important}}`;
+document.head.appendChild(st);
+const fl=document.createElement("link");fl.rel="stylesheet";fl.href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400&display=swap";document.head.appendChild(fl);
+
+const perch=document.createElement("div");perch.id="kr-perch";perch.setAttribute("aria-hidden","true");
+const pcv=document.createElement("canvas");pcv.className="kr-me";pcv.title="Doppelklick: für heute ausblenden";
+const zz=document.createElement("span");zz.className="kr-zzz";ZPIX.forEach(z=>zz.appendChild(pix(z,{"#":"#3b5a8c"},2)));
+perch.append(pcv,zz);
+const actor=document.createElement("div");actor.id="kr-actor";actor.setAttribute("aria-hidden","true");
+const acv=document.createElement("canvas");actor.appendChild(acv);
+const bub=document.createElement("div");bub.id="kr-bubble";bub.setAttribute("role","status");
+const peekBox=document.createElement("div");peekBox.id="kr-peek";peekBox.setAttribute("aria-hidden","true");
+const kcv=document.createElement("canvas");peekBox.appendChild(kcv);
+const walker=document.createElement("div");walker.id="kr-walk";walker.setAttribute("aria-hidden","true");
+const wcv=document.createElement("canvas");walker.appendChild(wcv);
+document.body.append(perch,actor,bub,peekBox,walker);
+
+/* ---------- Zustand ---------- */
+const fine=matchMedia("(pointer:fine)").matches;
+const reduce=matchMedia("(prefers-reduced-motion:reduce)").matches;
+let mouse=null,lastAct=Date.now(),lastInput=0,sleeping=false,evActive=false,seqT=[],seqOn=false,mood=P.rest,foodEl=null;
+const rnd=([a,b])=>a+Math.random()*(b-a);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+let perchAway=true,perchNext=Date.now()+rnd(AWAY)*.5,peekOn=false,lastPeek=0,peekMood={};
+let sessStart=Date.now();
+let nextEv=Date.now()+EV_MIN*0.7+Math.random()*EV_MIN;
+const inExam=()=>/^#k-run/.test(location.hash);
+const gone=()=>K.gone===day();
+const home=()=>!!K.house;
+const hidden=()=>inExam()||gone()||home();
+function busy(){const a=document.activeElement;
+  if(document.querySelector(".tour-card"))return true;
+  return !!a&&(a.tagName==="TEXTAREA"||a.tagName==="SELECT"||(a.tagName==="INPUT"&&!/checkbox|radio|button/.test(a.type)))}
+function canTalk(){const n=Date.now();
+  return !hidden()&&!evActive&&!sleeping&&!seqOn&&document.visibilityState==="visible"&&n-lastAct<120e3&&n-lastInput>QUIET_MS&&!busy()}
+
+/* ---------- Augen ---------- */
+function near(cv){if(!mouse)return false;const r=cv.getBoundingClientRect();return Math.hypot(mouse[0]-(r.left+r.width/2),mouse[1]-(r.top+r.height/2))<CHASE_PX}
+function lookAt(cv,o){
+  if(!mouse||o.mouth==='sad'||(o.eyes&&o.eyes!=='open'&&o.eyes!=='big'))return o;
+  const r=cv.getBoundingClientRect(),vx=mouse[0]-(r.left+r.width/2),vy=mouse[1]-(r.top+r.height*.2),cl=v=>Math.max(-1,Math.min(1,v));
+  return Object.assign({},o,{look:[Math.round(cl(vx/90)*2),Math.round(cl(vy/90))],tilt:Math.abs(vx)>r.width*.9?Math.sign(vx):0});
+}
+let raf=0;
+function drawPerch(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;draw(pcv,lookAt(pcv,mood))})}
+function setMood(m){mood=m;drawPerch()}
+
+/* ---------- Sprechblase ---------- */
+let bubT=0,bubAnchor=null;
+function placeBubble(){if(!bubAnchor||bub.style.display!=="block")return;
+  const r=bubAnchor.getBoundingClientRect(),cx=r.left+r.width/2,bw=bub.offsetWidth,bh=bub.offsetHeight;
+  const top=Math.min(innerHeight-20,r.top+6)-bh-15;          // Zipfelspitze knapp über dem Kopf
+  const left=Math.min(Math.max(14,cx-bw+30),innerWidth-bw-14);
+  const tl=cx<left+bw/2;bub.classList.toggle("tl",tl);           // Zipfel zeigt nach links oder rechts unten
+  bub.style.left=left+"px";bub.style.top=Math.max(8,top)+"px";
+  bub.style.setProperty("--tail",Math.min(Math.max(6,tl?cx-left-1.5:cx-left-10.5),bw-18)+"px")}
+function say(text,ms,anchor){clearTimeout(bubT);bubAnchor=anchor||pcv;bub.textContent=text;bub.style.display="block";placeBubble();setTimeout(placeBubble,480);
+  bubT=setTimeout(hush,ms||5000)}
+function hush(){clearTimeout(bubT);bub.style.display="none";bubAnchor=null}
+bub.addEventListener("click",()=>{hush();if(foodEl)endMeal()});
+addEventListener("resize",placeBubble);
+
+/* ---------- Abläufe ---------- */
+function seq(steps){cancelSeq();seqOn=true;applyVis();let t=0;
+  steps.forEach(([ms,fn])=>{t+=ms;seqT.push(setTimeout(fn,t))});
+  seqT.push(setTimeout(()=>{seqOn=false;applyVis()},t+10))}
+function cancelSeq(){seqT.forEach(clearTimeout);seqT=[];if(seqOn){seqOn=false;applyVis()}}
+function reset(){cancelSeq();hush();if(foodEl){foodEl.remove();foodEl=null}setMood(P.rest)}
+
+/* ---------- Sichtbarkeit ---------- */
+function applyVis(){
+  const h=hidden();
+  perch.classList.toggle("off",h||evActive||peekOn||(perchAway&&!sleeping&&!seqOn&&!foodEl));
+  perch.classList.toggle("talk",!h&&(seqOn||!!foodEl));
+  if(h&&peekOn)endPeek();
+  if(h){if(evActive)stopEvent();if(seqOn||bub.style.display==="block")reset();if(sleeping){sleeping=false;perch.classList.remove("sleep")}}
+}
+addEventListener("hashchange",applyVis);
+
+/* ---------- Aktivität, Schlafen, Aufwachen ---------- */
+function act(){lastAct=Date.now();if(sleeping)wake()}
+function sleep(){sleeping=true;reset();setMood(P.sleep);perch.classList.add("sleep")}
+function wake(){sleeping=false;sessStart=Date.now();perch.classList.remove("sleep");
+  if(hidden()||busy()){setMood(P.rest);return}
+  seq([[0,()=>setMood(P.scared)],
+       [700,()=>{setMood(P.sad);say(pick(["Da bist du ja! Du hast mich sooo lange allein gelassen …","Ich hab schon Algen angesetzt vor Warten.","10 Minuten weg?! Ich hab mir schon Sorgen gemacht. Und Muscheln gezählt.","Ach, auch mal wieder da? Hmpf."]),3600)}],
+       [3600,()=>{setMood(P.cheer);say(pick(["Na gut, schön dass du wieder da bist. Weiter geht’s!","Vergeben. Aber nur, weil du so fleißig bist.","Okay, ich bin nicht mehr sauer. Fast."]),2800)}],
+       [2800,()=>{setMood(P.rest)}]]);
+}
+addEventListener("mousemove",e=>{mouse=[e.clientX,e.clientY];act();if(peekOn){draw(kcv,lookAt(kcv,peekMood));if(!teasing&&peekBox.classList.contains("up")&&near(kcv)){draw(kcv,P.scared);endPeek()}}
+  if(!evActive&&!hidden()){const r=pcv.getBoundingClientRect();perch.classList.toggle("duck",!seqOn&&Math.hypot(e.clientX-(r.left+r.width/2),e.clientY-(r.top+r.height/2))<80)}
+  drawPerch()},{passive:true});
+["keydown","click","touchstart"].forEach(ev=>addEventListener(ev,()=>{lastInput=Date.now();act()},{passive:true,capture:true}));
+["scroll","wheel"].forEach(ev=>addEventListener(ev,act,{passive:true}));
+document.addEventListener("mouseleave",()=>{mouse=null;perch.classList.remove("duck");drawPerch()});
+
+/* ---------- Ruheplatz anklicken ---------- */
+let clickT=0;
+pcv.addEventListener("click",()=>{
+  if(foodEl){endMeal();return}
+  clearTimeout(clickT);clickT=setTimeout(()=>{if(!seqOn&&!sleeping)seq([[0,()=>setMood(P.cheer)],[1200,()=>setMood(P.rest)]])},260);
+});
+pcv.addEventListener("dblclick",()=>{clearTimeout(clickT);reset();
+  say(pick(["Okay, ich lass dich in Ruhe. Bis morgen!","Verstanden, ich krabbel mich weg. Bis morgen!"]),2000);
+  setTimeout(()=>{K.gone=day();saveK();applyVis()},2000)});
+
+/* ---------- Essenszeit ---------- */
+function mealDue(){const d=new Date(),m=d.getHours()*60+d.getMinutes();
+  for(const k in MEALS){const [a,b]=MEALS[k];if(m>=a&&m<b&&!(K.meal&&K.meal[day()+k]))return k}return null}
+function meal(k){K.meal={[day()+k]:1,...Object.fromEntries(Object.entries(K.meal||{}).filter(([x])=>x.startsWith(day())))};saveK();
+  cancelSeq();seqOn=true;setMood(P[k]);
+  foodEl=pix(FOOD[k][1],FOOD[k][0],SC);foodEl.className="kr-food";perch.appendChild(foodEl);applyVis();
+  say(k==="lunch"?pick(["Mittagszeit! Hol dir was zu essen, dein Kopf braucht Energie.","Mittag! Selbst Mitochondrien arbeiten nicht ohne Futter.","Glykolyse braucht Glucose. Also: ab zum Essen!"]):pick(["Abendessen! Iss was Ordentliches, dann geht’s weiter.","Abendessen! Ich nehm Plankton, du was Richtiges.","Dein Blutzucker hat angerufen. Er will Abendessen."]),20000);
+  seqT.push(setTimeout(endMeal,20000))}
+function endMeal(){if(foodEl){foodEl.remove();foodEl=null}hush();cancelSeq();setMood(P.rest);applyVis()}
+
+/* ---------- Motivation nach Lernstand ---------- */
+function progressMsg(){
+  try{
+    if(typeof BLOCKS==="undefined"||typeof S==="undefined"||typeof blockStats!=="function")return null;
+    const m=location.hash.match(/^#b-(\d+)/);
+    if(m&&typeof BYID!=="undefined"&&BYID[m[1]]){const s=blockStats(BYID[m[1]]),left=s.ks-s.d;
+      if(left<=0)return"Diesen Block hast du schon durch. Stark!";
+      if(left<=3)return`Nur noch ${left} ${left===1?"Kapitel":"Kapitel"} in diesem Block. So viel fehlt gar nicht mehr!`;
+      return`Noch ${left} Kapitel in diesem Block. Eins nach dem anderen, du schaffst das.`}
+    const tot=BLOCKS.reduce((a,b)=>a+b.kapitel.length,0),done=Object.keys(S.done).filter(k=>S.done[k]).length,left=tot-done;
+    if(done===0)return"Der Anfang ist das Schwerste. Du schaffst das!";
+    if(left<=0)return"Alles verstanden. Jetzt noch eine Probeklausur?";
+    if(left<=5)return`Nur noch ${left} Kapitel insgesamt. So viel fehlt gar nicht mehr!`;
+    if(done*2>=tot)return`Schon über die Hälfte geschafft: ${done} von ${tot} Kapiteln!`;
+    return`Schon ${done} von ${tot} Kapiteln verstanden. Weiter so!`;
+  }catch(e){return null}
+}
+const PEP=["Du schaffst das!","Kurz durchatmen, dann weiter. Am besten mit Kiemen.","Jede Frage bringt dich ein Stück weiter. Seitwärts zählt auch.",
+  "Ich glaub an dich. Und ich bin eine Krabbe, ich kenn mich mit Panzern aus.","Dein Gehirn verbraucht grad ca. 20 % deiner Energie. Gut investiert!",
+  "Psst … du machst das super.","Ich würde ja helfen, aber ich hab nur Scheren.","Kleiner Tipp: Ich hätte die Prüfung auch nicht ohne Lernen geschafft.",
+  "Wusstest du? Krabben haben blaues Blut. Hämocyanin! Siehst du, Lernen macht Spaß."];
+function motivate(){const t=Math.random()<.65&&progressMsg()||PEP[Math.floor(Math.random()*PEP.length)];
+  seq([[0,()=>{setMood(P.cheer);say(t,6000)}],[1400,()=>setMood(P.rest)],[4600,()=>{}]])}
+
+/* ---------- Ausflüge (Krabbe verlässt den Ruheplatz) ---------- */
+let ax=0,ay=0,avx=0,avy=0,af=0,aRaf=0,aStep=null,aEnd=0;
+function homeXY(){const r=pcv.getBoundingClientRect();return[r.left,innerHeight-H*SC-4]}
+function startEvent(step,maxMs){evActive=true;hush();cancelSeq();perch.classList.add("off");perch.classList.remove("duck");
+  actor.style.display="block";aStep=step;aEnd=Date.now()+maxMs;af=0;loop()}
+function stopEvent(){cancelAnimationFrame(aRaf);actor.style.display="none";evActive=false;aStep=null;hush();setMood(P.rest);applyVis()}
+function loop(){aRaf=requestAnimationFrame(()=>{if(!aStep)return;
+  const o=aStep();if(o===false||Date.now()>aEnd+15000){stopEvent();return}
+  af++;ax+=avx;ay+=avy;draw(acv,lookAt(acv,o));
+  actor.style.transform=`translate(${ax}px,${ay+(o.legs!=null&&o.legs%2?-2:0)}px)`;
+  if(bubAnchor===acv)placeBubble();loop()})}
+const legs=()=>(af>>2)%2;
+
+// 1) saust einmal quer über den unteren Rand
+function zoom(){const dir=Math.random()<.5?1:-1;ax=dir>0?-80:innerWidth+10;ay=innerHeight-H*SC-4;avx=8*dir;avy=0;
+  startEvent(()=>{if(dir>0?ax>innerWidth+20:ax<-90)return false;return{legs:legs(),look:[2*dir,0]}},8000)}
+
+// 2) läuft der Maus ein paar Sekunden hinterher, dann zurück
+function follow(){[ax,ay]=homeXY();let back=false;const t0=Date.now();
+  startEvent(()=>{
+    if(!back&&(Date.now()-t0>7000||!mouse))back=true;
+    let tx,ty;if(back)[tx,ty]=homeXY();else{tx=mouse[0]-32;ty=mouse[1]+40}
+    ty=Math.min(ty,innerHeight-H*SC-4);
+    const dx=tx-ax,dy=ty-ay,d=Math.hypot(dx,dy)||1,sp=back?5:(d>110?3.5:0);
+    avx=dx/d*Math.min(sp,d);avy=dy/d*Math.min(sp,d);
+    if(back&&d<6)return false;
+    return sp>0.5?{legs:legs()}:{};
+  },16000)}
+
+// 3) Fang mich: flüchtet am unteren Rand, freut sich beim Fangen
+function catchMe(){let state="free";ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
+  const onClick=()=>{if(state!=="free")return;state="caught";avx=avy=0;
+    say(pick(["Erwischt! Respekt!","Du hast mich! Stark!","Wow, bist du schnell!","Okay, okay! Ich ergebe mich!","Mist. Wie hast du das gemacht?"]),1800,acv);
+    setTimeout(()=>{if(aStep)say(pick(["Und jetzt zurück zum Lernen, du schaffst das!","So viel Talent. Jetzt bitte auch fürs Lernen nutzen!","Belohnung: noch ein Kapitel. Hehe."]),2600,acv)},1800);
+    setTimeout(()=>{state="leave"},4400)};
+  acv.addEventListener("click",onClick);
+  setTimeout(()=>{if(aStep&&state==="free")say(pick(["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"]),1800,acv)},500);
+  startEvent(()=>{
+    if(state==="caught")return P.cheer;
+    if(state==="leave"||Date.now()-t0>14000){state="leave";avx=7;avy=0;if(ax>innerWidth+20){acv.removeEventListener("click",onClick);return false}return{legs:legs(),look:[2,0]}}
+    let near=false;const cx=ax+32,cy=ay+26;
+    if(mouse&&Date.now()-t0>600){const dx=cx-mouse[0],dy=cy-mouse[1],d=Math.hypot(dx,dy)||1;if(d<150){near=true;avx+=dx/d*.9;avy+=dy/d*.9}}
+    const minY=(document.querySelector("header.top")?.getBoundingClientRect().bottom||0)+8,maxY=innerHeight-H*SC-4,maxX=innerWidth-W*SC;
+    if(near&&(ax<4||ax>maxX-4)&&(ay<minY+4||ay>maxY-4)){avx=(innerWidth/2-cx)/18;avy=(innerHeight/2-cy)/18}
+    avx*=.86;avy*=.86;const sp=Math.hypot(avx,avy);if(sp>7){avx*=7/sp;avy*=7/sp}
+    if(Date.now()-t0>600){ax=Math.max(0,Math.min(maxX,ax));ay=Math.max(minY,Math.min(maxY,ay))}
+    if(near&&mouse&&Math.hypot(cx-mouse[0],cy-mouse[1])<70)return P.scared;
+    return sp>.6?{legs:legs()}:{};
+  },30000)}
+
+// 4) schaut seitlich vom Bildschirmrand herein und verschwindet wieder
+function sidePeek(){const left=Math.random()<.5,y=innerHeight*(.3+Math.random()*.4);let t0=Date.now(),t=0,fled=false;
+  ax=left?-W*SC:innerWidth;ay=y;avy=0;
+  startEvent(()=>{t=(Date.now()-t0)/16.7;
+    if(!fled&&t>=25&&t<160&&near(acv)){fled=true;t0=Date.now()-160*16.7;t=160}
+    const inX=left?-W*SC/2:innerWidth-W*SC/2,outX=left?-W*SC-4:innerWidth+4;
+    if(t<25)avx=(inX-ax)/6;else if(t<160)avx=0;else{avx=(outX-ax)/5;if(Math.abs(outX-ax)<2)return false}
+    if(t>=25&&t<160&&t%70<8)return{eyes:'closed'};
+    return{};
+  },6000)}
+
+// 5) läuft oben auf einem Kasten der Seite entlang
+function walkOver(){
+  const cand=[...document.querySelectorAll("#main details,#main .lese,#main .card,#main .q,#main .worum,#main table,#main .box")].filter(el=>{const r=el.getBoundingClientRect();return r.width>240&&r.top>90&&r.top<innerHeight-120});
+  if(!cand.length){zoom();return}
+  const el=cand[Math.floor(Math.random()*cand.length)],r=el.getBoundingClientRect(),dir=Math.random()<.5?1:-1;
+  const x0=r.left+scrollX+6,x1=r.right+scrollX-W*SC-6,top=r.top+scrollY-H*SC+5;
+  let x=dir>0?x0:x1,f=0,pause=0,done=false,last=performance.now();
+  evActive=true;hush();cancelSeq();applyVis();
+  walker.style.display="block";wcv.style.opacity="1";
+  const fin=()=>{if(done)return;done=true;wcv.style.opacity="0";setTimeout(()=>{walker.style.display="none";evActive=false;applyVis()},300)};
+  wcv.onclick=()=>{pause=1000;draw(wcv,P.cheer)};
+  (function step(now){if(done)return;if(hidden()){fin();return}
+    now=now||performance.now();const dt=Math.min(50,now-last);last=now;
+    f=Math.floor(now/22);if(pause>0){pause-=dt}else{x+=.045*dt*dir;
+      if(Math.random()<dt/4000)pause=900;
+      draw(wcv,lookAt(wcv,pause>0?{}:{legs:(f>>3)%2,look:[2*dir,0]}))}
+    walker.style.transform=`translate(${x}px,${top+((f>>3)%2&&!(pause>0)?-1:0)}px)`;
+    if(dir>0?x>=x1:x<=x0){fin();return}
+    if(!(pause>0)&&near(wcv)){draw(wcv,P.scared);fin();return}
+    requestAnimationFrame(step)})();
+}
+
+// 6) nach langer Lernzeit: Pause vorschlagen und Fangspiel starten
+function breakGame(){sessStart=Date.now();
+  const game=fine&&!reduce;
+  seq([[0,()=>{setMood(P.cheer);say(pick(game?["Du lernst schon ewig! Kurze Pause? Fang mich!","Pausenalarm! Wer mich fängt, darf weiterlernen.","Dein Kopf qualmt. Kurze Pause: Fang mich!"]
+                                                :["Du lernst schon ewig! Kurze Pause? Steh mal auf und streck dich.","Pausenalarm! Kurz Wasser trinken, dann weiter."]),3200)}],
+       [3200,()=>{setMood(P.rest);if(game&&!hidden())catchMe()}]])}
+
+function randomEvent(){
+  const opts=[[motivate,4]];
+  if(!reduce)opts.push([zoom,2],[sidePeek,2],[walkOver,3]);
+  if(fine&&!reduce)opts.push([follow,2],[catchMe,2]);
+  let r=Math.random()*opts.reduce((a,o)=>a+o[1],0);for(const [f,w] of opts){if((r-=w)<0){f();return}}
+}
+
+/* ---------- Takt ---------- */
+setInterval(()=>{if(mood===P.rest&&!sleeping&&!evActive&&!hidden()){mood=P.blink;drawPerch();setTimeout(()=>{if(mood===P.blink)setMood(P.rest)},150)}},4600);
+setInterval(()=>{if(mood===P.rest&&canTalk()&&Math.random()<.5){
+  const g=[{claws:'up',eyes:'happy'},{eyes:'closed',mouth:'flat'},{look:[0,-1]}][Math.floor(Math.random()*3)];
+  setMood(g);setTimeout(()=>{if(mood===g)setMood(P.rest)},2000)}},45000);
+setInterval(()=>{
+  applyVis();if(hidden())return;
+  const n=Date.now();
+  if(!sleeping&&!evActive&&!seqOn&&n-lastAct>IDLE_MS){sleep();return}
+  if(n>perchNext&&!seqOn&&!sleeping&&!foodEl&&!evActive){perchAway=!perchAway;perchNext=n+rnd(perchAway?AWAY:STAY);perch.classList.remove("duck");applyVis()}
+  if(canTalk()){const k=mealDue();if(k){meal(k);return}}
+  if(canTalk()&&n-sessStart>BREAK_MS){breakGame();return}
+  if(n>nextEv){nextEv=n+EV_MIN+Math.random()*(EV_MAX-EV_MIN);if(canTalk()&&Math.random()<.6)randomEvent()}
+},1000);
+
+/* ---------- Knopf auf der Startseite: Krabbe ins Haus / freilassen ---------- */
+function setHouse(on){
+  if(on){reset();say(pick(["Okay, ich geh in mein Haus. Hol mich, wenn du magst!","Ab ins Häuschen. Ich mach da eh grad Panzerpflege."]),1800);setTimeout(()=>{K.house=true;saveK();applyVis();fillSlot()},1800)}
+  else{delete K.house;delete K.gone;saveK();applyVis();fillSlot();setTimeout(()=>{if(!hidden())seq([[0,()=>{setMood(P.cheer);say(pick(["Juhu, frei! Danke!","Endlich! Da drin war’s sooo langweilig.","Bin wieder da! Hast du mich vermisst?"]),2200)}],[2200,()=>setMood(P.rest)]])},500)}
+}
+function fillSlot(){const slot=document.getElementById("krabbe-slot");if(!slot)return;
+  const on=home();
+  if(slot.dataset.state===String(on)&&slot.firstChild)return;
+  slot.dataset.state=String(on);slot.innerHTML="";
+  const b=document.createElement("button");b.className="btn ghost";b.type="button";
+  b.textContent=on?"Krabbe freilassen":"Krabbe ins Haus schicken";
+  b.title=on?"Die Krabbe darf wieder auf der Seite herumlaufen":"Die Krabbe bleibt weg, bis du sie wieder freilässt";
+  b.onclick=()=>{b.disabled=true;setHouse(!home())};
+  const ic=document.createElement("canvas");
+  if(on)paint(ic,houseGrid(),1,HPAL);else draw(ic,{eyes:'happy',mouth:'open',claws:'up'},1);
+  ic.style.cssText="image-rendering:pixelated;vertical-align:middle;margin:-6px 8px -6px -4px;width:"+ic.width+"px;height:"+ic.height+"px";b.prepend(ic);
+  slot.appendChild(b)}
+const mainEl=document.getElementById("main");
+if(mainEl)new MutationObserver(fillSlot).observe(mainEl,{childList:true});
+fillSlot();
+
+/* ---------- Beim Aufklappen kurz über den Rand lugen ---------- */
+function peek(d){
+  const t=d.querySelector(":scope>summary")||d,r=t.getBoundingClientRect();
+  if(r.width<160||r.top<60||r.top>innerHeight-40)return;
+  peekOn=true;lastPeek=Date.now();peekMood={};
+  peekBox.style.left=(r.right+scrollX-64-18)+"px";peekBox.style.top=(r.top+scrollY-31)+"px";peekBox.style.display="block";applyVis();
+  draw(kcv,lookAt(kcv,peekMood));
+  requestAnimationFrame(()=>requestAnimationFrame(()=>peekBox.classList.add("up")));
+  peekT=setTimeout(endPeek,3800)}
+let peekT=0;
+function endPeek(){clearTimeout(peekT);peekBox.classList.remove("up");setTimeout(()=>{if(!peekBox.classList.contains("up")){peekBox.style.display="none";peekOn=false;applyVis()}},400)}
+kcv.addEventListener("click",()=>{peekMood={eyes:'happy',claws:'up',mouth:'open'};draw(kcv,peekMood);clearTimeout(peekT);peekT=setTimeout(endPeek,1200)});
+/* Streich: klappt Aufgeklapptes frech wieder zu und gleich wieder auf (max. 2x am Tag) */
+let teasing=false,lastTease=0;
+function teaseDay(){if(!K.tease||K.tease.d!==day())K.tease={d:day(),n:0,max:TEASE_MAX[0]+Math.floor(Math.random()*(TEASE_MAX[1]-TEASE_MAX[0]+1)),last:0};return K.tease}
+function canTease(){const t=teaseDay();return t.n<t.max&&Date.now()-Math.max(lastTease,t.last||0)>TEASE_GAP&&Math.random()<TEASE_CHANCE}
+function tease(d){
+  const t=d.querySelector(":scope>summary")||d,r=t.getBoundingClientRect();
+  if(r.width<160||r.top<60||r.top>innerHeight-60)return false;
+  teasing=true;lastTease=Date.now();lastPeek=Date.now();
+  const td=teaseDay();td.n++;td.last=Date.now();saveK();
+  peekOn=true;peekMood={eyes:'big',mouth:'o',blush:false};
+  peekBox.style.left=(r.right+scrollX-64-18)+"px";peekBox.style.top=(r.top+scrollY-31)+"px";peekBox.style.display="block";applyVis();
+  draw(kcv,peekMood);requestAnimationFrame(()=>requestAnimationFrame(()=>peekBox.classList.add("up")));
+  const T=[
+    [500,()=>{peekMood={claws:'up',look:[-2,1],mouth:'flat'};draw(kcv,peekMood)}],
+    [450,()=>{d.open=false;peekMood={eyes:'happy',claws:'up',mouth:'open'};draw(kcv,peekMood);
+      say(pick(["Hihi, zu!","Schnapp! Zu.","Ups. Meine Schere ist ausgerutscht.","Das hier ist privat. Krabbengeheimnis!"]),1700,kcv)}],
+    [1700,()=>{peekMood={look:[-1,1]};draw(kcv,peekMood);d.open=true;
+      say(pick(["Spaß! Bitte schön.","Na gut, du darfst.","War nur ein Test. Bestanden!","Okay okay, wieder offen."]),1800,kcv)}],
+    [1900,()=>{teasing=false;endPeek()}]];
+  let acc=0;T.forEach(([ms,fn])=>{acc+=ms;setTimeout(fn,acc)});
+  return true}
+
+document.addEventListener("toggle",e=>{const d=e.target;
+  if(teasing||!(d instanceof HTMLDetailsElement)||!d.open||peekOn)return;
+  if(!hidden()&&!evActive&&!sleeping&&!busy()&&canTease()){setTimeout(()=>{if(d.open&&!peekOn&&!teasing)tease(d)},250);return}
+  if(hidden()||evActive||sleeping||busy()||Date.now()-lastPeek<PEEK_GAP||Math.random()>=PEEK_CHANCE)return;
+  setTimeout(()=>{if(d.open&&!peekOn)peek(d)},350)},true);
+
+// für Test-Leiste und Konsole: sichtbaren Kasten suchen, ggf. aufklappen, dann Aktion
+function withDetails(fn){const d=[...document.querySelectorAll("#main details")].find(x=>{const r=(x.querySelector(":scope>summary")||x).getBoundingClientRect();return r.width>=160&&r.top>60&&r.top<innerHeight-60});
+  if(!d){say("Hier ist kein Kasten zum Aufklappen im Bild. Scroll mal zu einem!",2500);return}
+  if(d.open){fn(d);return}lastPeek=lastTease=Date.now();d.open=true;setTimeout(()=>fn(d),400)}
+// zum Ausprobieren in der Konsole: krabbe.zoom(), krabbe.catchMe() …
+window.krabbe={pause:breakGame,tease:()=>withDetails(tease),sidePeek,walkOver,peek:()=>withDetails(peek),away:()=>{perchNext=0},zoom,follow,catchMe,motivate,sleep,wake:act,meal:k=>meal(k||"lunch"),back:()=>setHouse(false),house:()=>setHouse(true)};
+draw(pcv,P.rest);applyVis();
+
+/* ---------- Test-Leiste: nur mit ?krabbe-test in der Adresse ---------- */
+if(/krabbe-test/.test(location.search)){
+  const T=document.createElement("div");
+  T.style.cssText="position:fixed;left:8px;bottom:8px;z-index:70;display:flex;flex-wrap:wrap;gap:4px;max-width:min(560px,calc(100vw - 100px));background:rgba(20,32,29,.9);padding:6px;border-radius:8px;font:12px system-ui";
+  const B=[["Ecke an/aus",()=>{perchNext=0}],["Spruch",motivate],["Vorbeisausen",zoom],["Seitlich",sidePeek],["Über Kasten",walkOver],
+    ["Hinterher",follow],["Fang mich",catchMe],["Pause nach 50 min",breakGame],["Lugen",window.krabbe.peek],["Zuklapp-Streich",window.krabbe.tease],
+    ["Mittag",()=>meal("lunch")],["Abend",()=>meal("dinner")],["Einschlafen",sleep],["Tageslimits zurücksetzen",()=>{const n=K.tease&&K.tease.d===day()?K.tease.n:0,mx=K.tease&&K.tease.d===day()?K.tease.max:TEASE_MAX[1];delete K.tease;delete K.meal;delete K.gone;saveK();lastTease=0;lastPeek=0;perchAway=false;perchNext=Date.now()+60e3;applyVis();
+      setTimeout(()=>say(`Zurückgesetzt! Streiche heute wieder frei (vorher ${n} von ${mx}), Essens-Erinnerung und Ausblenden auch.`,4000),500)}]];
+  B.forEach(([t,f])=>{const b=document.createElement("button");b.textContent=t;b.style.cssText="font:inherit;padding:4px 7px;border:0;border-radius:5px;background:#dbefeb;color:#14201d;cursor:pointer";
+    b.onclick=e=>{e.stopPropagation();setTimeout(()=>{lastInput=0;f()},50)};T.appendChild(b)});
+  document.body.appendChild(T);
+}
+})();
+
 </script>
 </body>
 </html>
