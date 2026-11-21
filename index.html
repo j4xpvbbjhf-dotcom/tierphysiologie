@@ -555,6 +555,7 @@ function crab(o){
   if(o.mouth==='sad'){set(g,14,17,'O');set(g,15,16,'O');set(g,16,16,'O');set(g,17,17,'O')}
   if(o.tear){set(g,21+t,9,'T');set(g,21+t,10,'T');set(g,22+t,11,'T')}
   if(o.blush){rect(g,10,15,2,1,'P');rect(g,20,15,2,1,'P')}
+  if(o.shy){rect(g,9,14,4,2,'P');rect(g,19,14,4,2,'P')}
   return g;
 }
 function paint(cv,g,s,pal){const h=g.length,w=g[0].length;if(cv.width!==w*s){cv.width=w*s;cv.height=h*s}const c=cv.getContext('2d');c.clearRect(0,0,cv.width,cv.height);
@@ -636,6 +637,13 @@ st.textContent=`
 #kr-nap{position:absolute;left:0;top:0;z-index:49;display:none;line-height:0}
 #kr-nap canvas.kr-me{image-rendering:pixelated;display:block;cursor:pointer}
 #kr-nap .kr-zzz{display:block}
+#kr-nap .kr-x{position:absolute;left:0;top:0;pointer-events:none}
+#kr-nap .kr-x canvas{position:absolute;image-rendering:pixelated}
+#kr-nap .kr-x.back{z-index:-1}
+#kr-nap .kr-drop{animation:krdrop .7s linear infinite}
+@keyframes krdrop{0%{transform:translateY(0);opacity:1}100%{transform:translateY(34px);opacity:0}}
+#kr-nap .kr-bob{animation:krz 1.8s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){#kr-nap .kr-drop,#kr-nap .kr-bob{animation:none}}
 #kr-walk{position:absolute;left:0;top:0;z-index:49;display:none;line-height:0;pointer-events:none}
 #kr-walk canvas{image-rendering:pixelated;display:block;pointer-events:auto;cursor:pointer;transition:opacity .3s}
 #kr-peek{position:absolute;z-index:49;overflow:hidden;width:64px;height:32px;pointer-events:none;display:none;line-height:0}
@@ -789,11 +797,13 @@ function motivate(){const f=Math.random()<.4&&factMsg();const t=f||Math.random()
 let ax=0,ay=0,avx=0,avy=0,af=0,aRaf=0,aStep=null,aEnd=0;
 function homeXY(){const r=pcv.getBoundingClientRect();return[r.left,innerHeight-H*SC-4]}
 function startEvent(step,maxMs){evActive=true;hush();cancelSeq();perch.classList.add("off");perch.classList.remove("duck");
-  actor.style.display="block";aStep=step;aEnd=Date.now()+maxMs;af=0;loop()}
+  actor.style.display="block";aStep=step;aLast=0;aEnd=Date.now()+maxMs;af=0;loop()}
 function stopEvent(){cancelAnimationFrame(aRaf);actor.style.display="none";evActive=false;aStep=null;hush();setMood(P.rest);applyVis()}
-function loop(){aRaf=requestAnimationFrame(()=>{if(!aStep)return;
+let aLast=0;
+function loop(){aRaf=requestAnimationFrame(now=>{if(!aStep)return;
   const o=aStep();if(o===false||Date.now()>aEnd+15000){stopEvent();return}
-  af++;ax+=avx;ay+=avy;draw(acv,lookAt(acv,o));
+  const k=aLast?Math.max(.25,Math.min(3,(now-aLast)/16.7)):1;aLast=now;
+  af++;ax+=avx*k;ay+=avy*k;draw(acv,lookAt(acv,o));
   actor.style.transform=`translate(${ax}px,${ay+(o.legs!=null&&o.legs%2?-2:0)}px)`;
   if(bubAnchor===acv)placeBubble();loop()})}
 const legs=()=>(af>>2)%2;
@@ -815,29 +825,38 @@ function follow(){[ax,ay]=homeXY();let back=false;const t0=Date.now();
   },16000)}
 
 // 3) Fang mich: flüchtet am unteren Rand, freut sich beim Fangen
-function catchMe(fromBreak){let state="free";ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
+const CATCH_LV={
+  easy:{r:100,push:.45,max:4,time:90000,hi:["Heute bin ich müde. Fang mich, wenn du magst.","Ich bin heut eher Schnecke als Krabbe. Fang mich!","Gemütlicher Modus: Fang mich!"],
+        got:["Okay, das war leicht. Ich war ja auch müde.","Erwischt! Hab dich aber gewinnen lassen. Vielleicht."]},
+  normal:{r:120,push:.6,max:5,time:90000,hi:["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"],got:[]},
+  hard:{r:135,push:.75,max:6,time:90000,hi:["Turbo-Krabbe! Viel Glück!","Heute bin ich flink. Versuch's!","Achtung, ich hab Kaffee getrunken!"],
+        got:["Was?! Mich im Turbo-Modus? Respekt!","Turbo-Krabbe besiegt! Stark!"]}};
+function catchMe(fromBreak,lv){if(!CATCH_LV[lv]){const r=Math.random();lv=r<.35?"easy":r<.7?"normal":"hard"}const L=CATCH_LV[lv];
+  let state="free",lastNear=Date.now();ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
   const onClick=()=>{if(state!=="free")return;state="caught";avx=avy=0;
     const before=earned();K.caught=(K.caught||0)+1;const dur=Date.now()-t0;if(!K.best||dur<K.best)K.best=dur;if(fromBreak===true)K.breakCaught=(K.breakCaught||0)+1;saveK();
     const fresh=earned().filter(id=>!before.includes(id)).map(id=>BADGES.find(b=>b.id===id).t);
-    say(pick(["Erwischt! Respekt!","Du hast mich! Stark!","Wow, bist du schnell!","Okay, okay! Ich ergebe mich!","Mist. Wie hast du das gemacht?"]),1800,acv);
+    say(pick(L.got.length&&Math.random()<.7?L.got:["Erwischt! Respekt!","Du hast mich! Stark!","Wow, bist du schnell!","Okay, okay! Ich ergebe mich!","Mist. Wie hast du das gemacht?"]),1800,acv);
     let t=1800;
     if(fresh.length){setTimeout(()=>{if(aStep)say(`Neues Abzeichen: ${fresh.join(", ")}! Schau mal im Fortschritt.`,2600,acv)},t);t+=2600}
     setTimeout(()=>{if(aStep)say(pick(["Und jetzt zurück zum Lernen, du schaffst das!","So viel Talent. Jetzt bitte auch fürs Lernen nutzen!","Belohnung: noch ein Kapitel. Hehe."]),2600,acv)},t);
     setTimeout(()=>{state="leave"},t+2600)};
   acv.addEventListener("click",onClick);
-  setTimeout(()=>{if(aStep&&state==="free")say(pick(["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"]),1800,acv)},500);
+  setTimeout(()=>{if(aStep&&state==="free")say(pick(L.hi),2200,acv)},500);
   startEvent(()=>{
     if(state==="caught")return P.cheer;
-    if(state==="leave"||Date.now()-t0>14000){state="leave";avx=7;avy=0;if(ax>innerWidth+20){acv.removeEventListener("click",onClick);return false}return{legs:legs(),look:[2,0]}}
+    if(state==="free"&&Date.now()-lastNear>15000){state="leave";say(pick(["Na gut, dann eben nicht. Tschüss!","Keine Lust? Okay, ich lauf weiter."]),1800,acv)}
+    if(state==="free"&&Date.now()-t0>L.time){state="leave";say(pick(["Zeit um! Ich hab gewonnen. Hehe.","Anderthalb Minuten und nicht erwischt! Nächstes Mal."]),1800,acv)}
+    if(state==="leave"){avx=7;avy=0;if(ax>innerWidth+20){acv.removeEventListener("click",onClick);return false}return{legs:legs(),look:[2,0]}}
     let near=false;const cx=ax+32,cy=ay+26;
-    if(mouse&&Date.now()-t0>600){const dx=cx-mouse[0],dy=cy-mouse[1],d=Math.hypot(dx,dy)||1;if(d<150){near=true;avx+=dx/d*.9;avy+=dy/d*.9}}
+    if(mouse&&Date.now()-t0>600){const dx=cx-mouse[0],dy=cy-mouse[1],d=Math.hypot(dx,dy)||1;if(d<L.r){near=true;lastNear=Date.now();avx+=dx/d*L.push;avy+=dy/d*L.push}}
     const minY=(document.querySelector("header.top")?.getBoundingClientRect().bottom||0)+8,maxY=innerHeight-H*SC-4,maxX=innerWidth-W*SC;
     if(near&&(ax<4||ax>maxX-4)&&(ay<minY+4||ay>maxY-4)){avx=(innerWidth/2-cx)/18;avy=(innerHeight/2-cy)/18}
-    avx*=.86;avy*=.86;const sp=Math.hypot(avx,avy);if(sp>7){avx*=7/sp;avy*=7/sp}
+    avx*=.86;avy*=.86;const sp=Math.hypot(avx,avy);if(sp>L.max){avx*=L.max/sp;avy*=L.max/sp}
     if(Date.now()-t0>600){ax=Math.max(0,Math.min(maxX,ax));ay=Math.max(minY,Math.min(maxY,ay))}
     if(near&&mouse&&Math.hypot(cx-mouse[0],cy-mouse[1])<70)return P.scared;
     return sp>.6?{legs:legs()}:{};
-  },30000)}
+  },L.time+16000)}
 
 // 4) schaut seitlich vom Bildschirmrand herein und verschwindet wieder
 function sidePeek(){const left=Math.random()<.5,y=innerHeight*(.3+Math.random()*.4);let t0=Date.now(),t=0,fled=false;
@@ -883,28 +902,56 @@ function breakGame(){sessStart=Date.now();
 let napOn=false;
 function napDay(){if(!K.nap||K.nap.d!==day())K.nap={d:day(),n:0,last:0};return K.nap}
 function canNap(){const t=napDay();return t.n<NAP_MAX&&Date.now()-(t.last||0)>NAP_GAP}
-function napOnText(force){
-  const ps=[...document.querySelectorAll("#main p,#main li")].filter(el=>{const r=el.getBoundingClientRect();return r.width>220&&r.height>=40&&r.top>110&&r.bottom<innerHeight-60});
-  if(!ps.length){if(force)say("Hier ist kein Text im Bild, auf den ich mich legen kann.",2500);return false}
+/* Szenen auf dem Text: schlafen, duschen, lesen, sonnenbaden */
+const SCN_PAL={O:"#3b1609",G:"#9aa5ad",g:"#cfd6db",b:"#5aa9e6",W:"#ffffff",w:"#d7ecfb",K:"#1a0d08",H:"#8a8f99",c:"#fffaf0",k:"#9c8b7a",B:"#4a7bd0",r:"#e4572e",y:"#f2c14e"};
+function towelRows(){const w=40,rows=[];for(let y=0;y<6;y++){let r="";for(let x=0;x<w;x++){const edge=y===0||y===5||x===0||x===w-1;r+=edge?"O":(Math.floor((x-1)/4)%3===0?"r":Math.floor((x-1)/4)%3===1?"c":"y")}rows.push(r)}return rows}
+const SCENES={
+  sleep:{pose:P.sleep,title:"Anklicken zum Aufwecken",zzz:true,
+    click:{pose:P.scared,run:{eyes:'big',mouth:'o',blush:false},say:["Huch! Ich hab nicht geschlafen, ich hab nur … gelesen!","Waaah! Bin schon weg!","Huch! Sorry, war so gemütlich hier.","Ich hab gar nichts verdeckt! Tschüss!"]},
+    auto:{pose:{eyes:'closed',claws:'up',mouth:'open'},say:["*gähn* Oh, lag ich auf deinem Text? Sorry!","Hm? Ach so, du willst das lesen. Ich geh ja schon."]}},
+  shower:{pose:{eyes:'happy',claws:'up',mouth:'open'},title:"Hier duscht jemand …",
+    deco(x){const head=pix(["......GG......","......GG......","......GG......","....GGGGGG....","..GgggggggggG..","..OOOOOOOOOOOO.."],SCN_PAL,2);head.style.left="18px";head.style.top="-20px";x.appendChild(head);
+      for(let i=0;i<6;i++){const d=pix(["b","b","w"],SCN_PAL,2);d.className="kr-drop";d.style.left=(24+i*3.4|0)+"px";d.style.top="-6px";d.style.animationDelay=(i*.12)+"s";x.appendChild(d)}
+      const foam=pix(["..GGG.....GGG..",".GWWWG...GWWWG.","GWWwWWGGGWWwWWG","GWWWWWWWWWWWWWG",".GGGGGGGGGGGGG."],SCN_PAL,2);foam.style.left="17px";foam.style.top="-4px";foam.className="kr-bob";x.appendChild(foam)},
+    click:{pose:{eyes:'closed',claws:'up',mouth:'o',shy:true},run:{eyes:'closed',mouth:'o',shy:true},say:["Iiih! Ich dusche gerade! Nicht hingucken!","Hey! Anklopfen! Das ist MEIN Badezimmer!","Waaah! Handtuch! Wo ist mein Handtuch?!","Ähm … das ist jetzt peinlich. Tschüss!"]},
+    auto:{pose:{eyes:'happy',mouth:'smile'},say:["Frisch geduscht! Jetzt kann ich wieder klar denken.","Ahh, sauber! Weiter geht's mit Lernen."]}},
+  read:{pose:{look:[0,1],mouth:'flat'},title:"Pssst, hier wird gelesen",
+    deco(x){const book=pix([".OOOOOOO.OOOOOOO.","OcccccccOcccccccO","OckkkkccOckkkkccO","OcccccccOcccccccO","OckkkkkcOckkkkkcO","OcccccccOcccccccO","OckkkcccOckkkcccO",".OOOOOOOOOOOOOOO."],SCN_PAL,2);book.style.left="15px";book.style.top="26px";x.appendChild(book)},
+    click:{pose:{eyes:'big',mouth:'o',claws:'up'},run:{eyes:'big',mouth:'flat',blush:false},say:["Pssst! Gerade wird's spannend!","Hey, ich war fast am Ende vom Kapitel!","Lesen bildet. Ach, das machst du ja eh schon. Bin weg!"]},
+    auto:{pose:{eyes:'happy',mouth:'smile'},say:["Fertig gelesen! Jetzt bist du wieder dran.","Spannendes Kapitel. Lies du es auch mal!"]}},
+  sun:{pose:{eyes:'closed',claws:'up',mouth:'smile'},title:"Sonnenbad, bitte nicht stören",
+    deco(x){const t=pix(towelRows(),SCN_PAL,2);t.style.left="-8px";t.style.top="42px";const tw=document.createElement("span");tw.className="kr-x back";tw.appendChild(t);x.parentNode.insertBefore(tw,x.parentNode.firstChild);x._back=tw;
+      const gl=pix(["OOOOOOOOOOOOOOOOO","OKKKKKKKOKKKKKKKO",".KHKKKKK.KHKKKKK.",".KKKKKKK.KKKKKKK.","..KKKKK...KKKKK.."],SCN_PAL,2);gl.style.left="16px";gl.style.top="5px";x.appendChild(gl)},
+    click:{pose:{eyes:'big',mouth:'o',claws:'up'},keepDeco:false,run:{eyes:'big',mouth:'o',blush:false},say:["Hey! Du stehst mir in der Sonne!","Psst, ich lade gerade meinen Akku auf!","Ich bräune mich! Okay, ich bin eh schon rot."]},
+    auto:{pose:{eyes:'happy',mouth:'smile'},say:["Genug Sonne für heute. Ab in den Schatten!","Aufgetankt! Und du? Noch ein Kapitel?"]}}};
+const SCENE_W={sleep:3,shower:2,read:2,sun:2};
+function napOnText(force,kind){
+  if(!SCENES[kind]){let r=Math.random()*Object.values(SCENE_W).reduce((a,b)=>a+b,0);for(const k in SCENE_W){if((r-=SCENE_W[k])<0){kind=k;break}}}
+  const S0=SCENES[kind];
+  const ps=[...document.querySelectorAll("#main p,#main li")].filter(el=>{const r=el.getBoundingClientRect();return r.width>220&&r.height>=40&&r.top>130&&r.bottom<innerHeight-60});
+  if(!ps.length){if(force)say("Hier ist kein Text im Bild, auf den ich mich setzen kann.",2500);return false}
   const el=pick(ps),r=el.getBoundingClientRect();
   const x=r.left+scrollX+(.15+Math.random()*.6)*(r.width-W*SC),y=r.top+scrollY+Math.random()*Math.max(0,r.height-H*SC);
   const t=napDay();t.n++;t.last=Date.now();saveK();
   napOn=true;evActive=true;hush();cancelSeq();applyVis();
-  napper.style.transform=`translate(${x}px,${y}px)`;napper.style.display="block";nzz.style.display="block";
-  draw(ncv,P.sleep);
+  napper.style.transform=`translate(${x}px,${y}px)`;napper.style.display="block";nzz.style.display=S0.zzz?"block":"none";
+  ncv.title=S0.title;
+  const deco=document.createElement("span");deco.className="kr-x";napper.appendChild(deco);if(S0.deco)S0.deco(deco);
+  const clearDeco=()=>{deco.remove();if(deco._back)deco._back.remove()};
+  draw(ncv,S0.pose);
   let done=false,auto=setTimeout(()=>leave(false),NAP_MS);
-  function off(dir,cb){let px=x,last=performance.now();const sp=.9*dir;
+  function off(dir,runPose,cb){let px=x,last=performance.now();const sp=.9*dir;
     (function run(now){now=now||performance.now();const dt=Math.min(50,now-last);last=now;px+=sp*dt;
-      draw(ncv,{legs:Math.floor(now/70)%2,eyes:'big',mouth:'o',blush:false,look:[2*dir,0]});
+      draw(ncv,Object.assign({legs:Math.floor(now/70)%2,look:[2*dir,0]},runPose));
       napper.style.transform=`translate(${px}px,${y}px)`;
       const sx=px-scrollX;if(sx<-80||sx>innerWidth+20||hidden()){cb();return}requestAnimationFrame(run)})()}
-  function end(){napper.style.display="none";hush();napOn=false;evActive=false;ncv.onclick=null;applyVis()}
+  function end(){napper.style.display="none";clearDeco();hush();napOn=false;evActive=false;ncv.onclick=null;ncv.title="";applyVis()}
   function leave(clicked){if(done)return;done=true;clearTimeout(auto);nzz.style.display="none";
     const dir=(x-scrollX+W*SC/2)<innerWidth/2?-1:1;
-    if(clicked){draw(ncv,P.scared);say(pick(["Huch! Ich hab nicht geschlafen, ich hab nur … gelesen!","Waaah! Bin schon weg!","Huch! Sorry, war so gemütlich hier.","Ich hab gar nichts verdeckt! Tschüss!"]),1800,ncv);
-      setTimeout(()=>off(dir,end),500)}
-    else{draw(ncv,{eyes:'closed',claws:'up',mouth:'open'});say(pick(["*gähn* Oh, lag ich auf deinem Text? Sorry!","Hm? Ach so, du willst das lesen. Ich geh ja schon."]),2200,ncv);
-      setTimeout(()=>{draw(ncv,P.rest);off(dir,end)},2200)}}
+    if(clicked){const c=S0.click;draw(ncv,c.pose);say(pick(c.say),3200,ncv);
+      setTimeout(()=>{clearDeco();off(dir,c.run,end)},2000)}
+    else{const a=S0.auto;clearDeco();draw(ncv,a.pose);say(pick(a.say),2200,ncv);
+      setTimeout(()=>{off(dir,{},end)},2200)}}
   ncv.onclick=e=>{e.stopPropagation();leave(true)};
   const watch=setInterval(()=>{if(!napOn){clearInterval(watch);return}if(hidden()&&!done){done=true;clearTimeout(auto);end()}},500);
   return true}
@@ -1117,7 +1164,7 @@ function withDetails(fn){const d=[...document.querySelectorAll("#main details")]
   if(!d){say("Hier ist kein Kasten zum Aufklappen im Bild. Scroll mal zu einem!",2500);return}
   if(d.open){fn(d);return}lastPeek=lastTease=Date.now();d.open=true;setTimeout(()=>fn(d),400)}
 // zum Ausprobieren in der Konsole: krabbe.zoom(), krabbe.catchMe() …
-window.krabbe={nap:()=>napOnText(true),pause:breakGame,tease:()=>withDetails(tease),sidePeek,walkOver,peek:()=>withDetails(peek),away:()=>{perchNext=0},zoom,follow,catchMe,motivate,sleep,wake:act,meal:k=>meal(k||"lunch"),back:()=>setHouse(false),house:()=>setHouse(true)};
+window.krabbe={nap:k=>napOnText(true,k),pause:breakGame,tease:()=>withDetails(tease),sidePeek,walkOver,peek:()=>withDetails(peek),away:()=>{perchNext=0},zoom,follow,catchMe,motivate,sleep,wake:act,meal:k=>meal(k||"lunch"),back:()=>setHouse(false),house:()=>setHouse(true)};
 draw(pcv,P.rest);applyVis();
 
 /* ---------- Test-Leiste: nur mit ?krabbe-test in der Adresse ---------- */
@@ -1125,8 +1172,8 @@ if(/krabbe-test/.test(location.search)){
   const T=document.createElement("div");
   T.style.cssText="position:fixed;left:8px;bottom:8px;z-index:70;display:flex;flex-wrap:wrap;gap:4px;max-width:min(560px,calc(100vw - 100px));background:rgba(20,32,29,.9);padding:6px;border-radius:8px;font:12px system-ui";
   const B=[["Ecke an/aus",()=>{perchNext=0}],["Spruch",motivate],["Vorbeisausen",zoom],["Seitlich",sidePeek],["Über Kasten",walkOver],
-    ["Hinterher",follow],["Fang mich",catchMe],["Pause nach 50 min",breakGame],["Lugen",window.krabbe.peek],["Zuklapp-Streich",window.krabbe.tease],
-    ["Mittag",()=>meal("lunch")],["Abend",()=>meal("dinner")],["Einschlafen",sleep],["Auf Text schlafen",()=>napOnText(true)],["Merksatz",()=>{const f=factMsg();f?seq([[0,()=>say(f,9000)],[9000,()=>{}]]):say("Merksätze gibt’s nur in einem Lernblock. Geh zu „Lernen“.",3000)}],
+    ["Hinterher",follow],["Fang mich",catchMe],["Fang leicht",()=>catchMe(false,"easy")],["Fang schwer",()=>catchMe(false,"hard")],["Pause nach 50 min",breakGame],["Lugen",window.krabbe.peek],["Zuklapp-Streich",window.krabbe.tease],
+    ["Mittag",()=>meal("lunch")],["Abend",()=>meal("dinner")],["Einschlafen",sleep],["Auf Text schlafen",()=>napOnText(true,"sleep")],["Duschen",()=>napOnText(true,"shower")],["Lesen",()=>napOnText(true,"read")],["Sonnenbaden",()=>napOnText(true,"sun")],["Merksatz",()=>{const f=factMsg();f?seq([[0,()=>say(f,9000)],[9000,()=>{}]]):say("Merksätze gibt’s nur in einem Lernblock. Geh zu „Lernen“.",3000)}],
     ["Quiz alles richtig",()=>quizDone(8,8)],["Quiz viele Fehler",()=>quizDone(2,8)],["Klausur gut",()=>{confetti();seq([[0,()=>{setMood(P.cheer);say("34 von 40 ganz richtig! Konfetti für dich!",4000)}],[4000,()=>setMood(P.rest)]])}],
     ["Begrüßung",()=>greet(true)],["Nacht",()=>{seq([[0,()=>{setMood({eyes:'closed',mouth:'open'});say("Es ist 1 Uhr! Schlaf ist auch Lernen.",4000)}],[4000,()=>setMood(P.rest)]])}],
     ["Kostüm wechseln",()=>{const o=[null,"santa","party","bow","none"];costumeOverride=o[(o.indexOf(costumeOverride)+1)%o.length];wearHat();perchAway=false;perchNext=Date.now()+60e3;applyVis();say("Kostüm: "+({santa:"Weihnachtsmütze",party:"Partyhut",bow:"Glücks-Schleife",none:"keins"}[costumeOverride]||"automatisch nach Datum"),2000)}],["Tageslimits zurücksetzen",()=>{const n=K.tease&&K.tease.d===day()?K.tease.n:0,mx=K.tease&&K.tease.d===day()?K.tease.max:TEASE_MAX[1];delete K.tease;delete K.nap;delete K.meal;delete K.gone;saveK();lastTease=0;lastPeek=0;perchAway=false;perchNext=Date.now()+60e3;applyVis();
