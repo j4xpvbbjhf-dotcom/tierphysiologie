@@ -1084,10 +1084,13 @@ function greet(force){
   const h=new Date().getHours(),nk=nextChapter();
   const hi=h<5?"Na, Nachteule?":h<11?"Guten Morgen!":h<17?"Hallo!":h<22?"Guten Abend!":"Noch wach?";
   const plan=nk===""?"Alles verstanden! Heute vielleicht eine Probeklausur?":nk?`Heute schaffen wir „${nk}“.`:"Schön, dass du da bist!";
+  const luck=costume()==="bow";
+  const LUCK=["Heute ist Prüfungstag! Ich wünsch dir ganz viel Erfolg. Du schaffst das!","Prüfungstag! Viel Erfolg! Ich hab extra meine Glücks-Schleife angezogen.","Heute zählt's! Viel Erfolg, ich drück dir alle Beine und beide Scheren."];
+  const msg=luck?LUCK[Math.floor(Math.random()*LUCK.length)]:`${hi} ${plan}`;
   const morning=h>=5&&h<11;
   if(morning){if(foodEl)foodEl.remove();foodEl=pix(MUG[1],MUG[0],SC);foodEl.className="kr-food";perch.appendChild(foodEl)}
   const wave=[{claws:'up',eyes:'happy',mouth:'open'},{eyes:'happy',mouth:'open'}];
-  seq([[0,()=>{setMood(wave[0]);say(`${hi} ${plan}`,5000)}],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],
+  seq([[0,()=>{setMood(wave[0]);say(msg,luck?7000:5000)}],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],[350,()=>setMood(wave[1])],[350,()=>setMood(wave[0])],
        [1600,()=>setMood(P.rest)],[2100,()=>{if(foodEl){foodEl.remove();foodEl=null}applyVis()}]]);
 }
 setTimeout(()=>{if(!inExam())greet()},2500);
