@@ -826,10 +826,10 @@ function follow(){[ax,ay]=homeXY();let back=false;const t0=Date.now();
 
 // 3) Fang mich: flüchtet am unteren Rand, freut sich beim Fangen
 const CATCH_LV={
-  easy:{r:100,push:.45,max:4,gap:[1800,2800],rest:1300,time:90000,hi:["Heute bin ich müde. Fang mich, wenn du magst.","Ich bin heut eher Schnecke als Krabbe. Fang mich!","Gemütlicher Modus: Fang mich!"],
+  easy:{r:100,push:.45,max:4,gap:[1800,2800],rest:700,time:90000,hi:["Heute bin ich müde. Fang mich, wenn du magst.","Ich bin heut eher Schnecke als Krabbe. Fang mich!","Gemütlicher Modus: Fang mich!"],
         got:["Okay, das war leicht. Ich war ja auch müde.","Erwischt! Hab dich aber gewinnen lassen. Vielleicht."]},
-  normal:{r:120,push:.6,max:5,gap:[2500,3500],rest:1000,time:90000,hi:["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"],got:[]},
-  hard:{r:135,push:.75,max:6,gap:[3200,4500],rest:750,time:90000,hi:["Turbo-Krabbe! Viel Glück!","Heute bin ich flink. Versuch's!","Achtung, ich hab Kaffee getrunken!"],
+  normal:{r:120,push:.6,max:5,gap:[2500,3500],rest:550,time:90000,hi:["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"],got:[]},
+  hard:{r:135,push:.75,max:6,gap:[3200,4500],rest:400,time:90000,hi:["Turbo-Krabbe! Viel Glück!","Heute bin ich flink. Versuch's!","Achtung, ich hab Kaffee getrunken!"],
         got:["Was?! Mich im Turbo-Modus? Respekt!","Turbo-Krabbe besiegt! Stark!"]}};
 function catchMe(fromBreak,lv){if(!CATCH_LV[lv]){const r=Math.random();lv=r<.35?"easy":r<.7?"normal":"hard"}const L=CATCH_LV[lv];
   let state="free",lastNear=Date.now(),restUntil=0,nextRest=Date.now()+1500+rnd(L.gap);ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
