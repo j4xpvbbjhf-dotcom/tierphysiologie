@@ -826,13 +826,13 @@ function follow(){[ax,ay]=homeXY();let back=false;const t0=Date.now();
 
 // 3) Fang mich: flüchtet am unteren Rand, freut sich beim Fangen
 const CATCH_LV={
-  easy:{r:100,push:.45,max:4,time:90000,hi:["Heute bin ich müde. Fang mich, wenn du magst.","Ich bin heut eher Schnecke als Krabbe. Fang mich!","Gemütlicher Modus: Fang mich!"],
+  easy:{r:100,push:.45,max:4,gap:[1800,2800],rest:1300,time:90000,hi:["Heute bin ich müde. Fang mich, wenn du magst.","Ich bin heut eher Schnecke als Krabbe. Fang mich!","Gemütlicher Modus: Fang mich!"],
         got:["Okay, das war leicht. Ich war ja auch müde.","Erwischt! Hab dich aber gewinnen lassen. Vielleicht."]},
-  normal:{r:120,push:.6,max:5,time:90000,hi:["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"],got:[]},
-  hard:{r:135,push:.75,max:6,time:90000,hi:["Turbo-Krabbe! Viel Glück!","Heute bin ich flink. Versuch's!","Achtung, ich hab Kaffee getrunken!"],
+  normal:{r:120,push:.6,max:5,gap:[2500,3500],rest:1000,time:90000,hi:["Fang mich doch!","Du kriegst mich nie!","Na, schnell genug?"],got:[]},
+  hard:{r:135,push:.75,max:6,gap:[3200,4500],rest:750,time:90000,hi:["Turbo-Krabbe! Viel Glück!","Heute bin ich flink. Versuch's!","Achtung, ich hab Kaffee getrunken!"],
         got:["Was?! Mich im Turbo-Modus? Respekt!","Turbo-Krabbe besiegt! Stark!"]}};
 function catchMe(fromBreak,lv){if(!CATCH_LV[lv]){const r=Math.random();lv=r<.35?"easy":r<.7?"normal":"hard"}const L=CATCH_LV[lv];
-  let state="free",lastNear=Date.now();ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
+  let state="free",lastNear=Date.now(),restUntil=0,nextRest=Date.now()+1500+rnd(L.gap);ax=innerWidth+10;ay=innerHeight-H*SC-30;avx=-6;avy=0;const t0=Date.now();
   const onClick=()=>{if(state!=="free")return;state="caught";avx=avy=0;
     const before=earned();K.caught=(K.caught||0)+1;const dur=Date.now()-t0;if(!K.best||dur<K.best)K.best=dur;if(fromBreak===true)K.breakCaught=(K.breakCaught||0)+1;saveK();
     const fresh=earned().filter(id=>!before.includes(id)).map(id=>BADGES.find(b=>b.id===id).t);
@@ -848,6 +848,9 @@ function catchMe(fromBreak,lv){if(!CATCH_LV[lv]){const r=Math.random();lv=r<.35?
     if(state==="free"&&Date.now()-lastNear>15000){state="leave";say(pick(["Na gut, dann eben nicht. Tschüss!","Keine Lust? Okay, ich lauf weiter."]),1800,acv)}
     if(state==="free"&&Date.now()-t0>L.time){state="leave";say(pick(["Zeit um! Ich hab gewonnen. Hehe.","Anderthalb Minuten und nicht erwischt! Nächstes Mal."]),1800,acv)}
     if(state==="leave"){avx=7;avy=0;if(ax>innerWidth+20){acv.removeEventListener("click",onClick);return false}return{legs:legs(),look:[2,0]}}
+    const now=Date.now();
+    if(state==="free"&&now>nextRest&&now-t0>1500){restUntil=now+L.rest;nextRest=restUntil+rnd(L.gap);if(Math.random()<.4)say(pick(["Hehe!","Puh, kurz Luft holen!","Ätsch!","Hihi!"]),900,acv)}
+    if(now<restUntil){avx=avy=0;return{eyes:'happy',mouth:'open'}}
     let near=false;const cx=ax+32,cy=ay+26;
     if(mouse&&Date.now()-t0>600){const dx=cx-mouse[0],dy=cy-mouse[1],d=Math.hypot(dx,dy)||1;if(d<L.r){near=true;lastNear=Date.now();avx+=dx/d*L.push;avy+=dy/d*L.push}}
     const minY=(document.querySelector("header.top")?.getBoundingClientRect().bottom||0)+8,maxY=innerHeight-H*SC-4,maxX=innerWidth-W*SC;
